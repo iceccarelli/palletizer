@@ -4,10 +4,13 @@
 
 *One codebase. Any robot arm. Any gripper. Any factory. Deploy in hours. Scale to global fleets. Capture massive ROI.*
 
+> **Live site and interactive optimizer -> [palletizer-app.vercel.app](https://palletizer-app.vercel.app)**
+
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/iceccarelli/palletizer/actions)
+[![CI](https://github.com/iceccarelli/palletizer/actions/workflows/ci.yml/badge.svg)](https://github.com/iceccarelli/palletizer/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/live%20demo-palletizer--app.vercel.app-000?logo=vercel&logoColor=white)](https://palletizer-app.vercel.app)
 [![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](https://github.com/iceccarelli/palletizer)
 [![Enterprise Ready](https://img.shields.io/badge/enterprise-ready-gold.svg)](https://github.com/iceccarelli/palletizer)
 [![Join Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/palletizer)
