@@ -141,7 +141,7 @@ The stack is deliberately layered so you can replace or extend any piece without
 
 ```mermaid
 flowchart TB
-    subgraph Orchestrator["PalletiserOrchestrator — Deterministic 50–100 Hz Control Loop"]
+    subgraph Orchestrator["PalletiserOrchestrator - Deterministic 50-100 Hz Control Loop"]
         direction TB
         A[Poll Sensors & Fuse Data] --> B[Update Power, Thermal, Battery]
         B --> C[Evaluate All Hazards & Faults]
@@ -167,7 +167,7 @@ flowchart TB
     end
 
     subgraph Control["Control Abstraction"]
-        RobotIface[RobotInterface (any arm)]
+        RobotIface["RobotInterface (any arm)"]
         JointSync[Joint Trajectory Sync]
         GripperCtrl[Gripper Control + Feedback]
     end
@@ -182,7 +182,7 @@ flowchart TB
     subgraph Planning["Planning & Optimization"]
         Patterns[Pattern Library & Validation]
         Mission[Mission & Order Sequencer]
-        AIPlanner[AI Mixed-Pallet Optimizer ★ Pro]
+        AIPlanner[AI Mixed-Pallet Optimizer (Pro)]
     end
 
     subgraph Power["Power & Thermal"]
