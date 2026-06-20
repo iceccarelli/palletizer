@@ -17,10 +17,10 @@ export default function PalletizerLanding() {
             v0.2 ENHANCED • OPEN CORE + ENTERPRISE
           </div>
           
-          <h1 className="text-6xl md:text-7xl font-semibold tracking-tighter leading-[0.92] mb-6">
+          <h1 className="text-4xl sm:text-5xl md:text-7xl font-semibold tracking-tighter leading-[1.05] sm:leading-[0.92] mb-6">
             The Intelligent OS<br />for End-of-Line Palletizing
           </h1>
-          <p className="max-w-2xl mx-auto text-2xl text-white/80 tracking-tight mb-10">
+          <p className="max-w-2xl mx-auto text-lg sm:text-2xl text-white/80 tracking-tight mb-10">
             One codebase. Any robot. Any factory.<br />
             <span className="text-primary">Live mixed-SKU optimization.</span> Physics-validated stability. Instant ROI proof.
           </p>
@@ -40,7 +40,7 @@ export default function PalletizerLanding() {
             </Link>
           </div>
 
-          <div className="mt-12 flex justify-center gap-8 text-sm text-white/60">
+          <div className="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm text-white/60">
             <div className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 18%+ avg density uplift</div>
             <div className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 8–18 month payback</div>
             <div className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Full audit & compliance ready</div>
@@ -66,7 +66,7 @@ export default function PalletizerLanding() {
       <section className="section-padding max-w-5xl mx-auto px-6">
         <div className="text-center mb-12">
           <div className="text-accent text-sm tracking-[3px] mb-3">THE HIDDEN COST OF "GOOD ENOUGH"</div>
-          <h2 className="text-5xl font-semibold tracking-tighter">Manual and basic automation is bleeding your margins.</h2>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tighter">Manual and basic automation is bleeding your margins.</h2>
         </div>
         
         <div className="grid md:grid-cols-3 gap-6">
@@ -90,7 +90,7 @@ export default function PalletizerLanding() {
           <div className="flex flex-col lg:flex-row gap-12 items-center">
             <div className="flex-1">
               <div className="uppercase tracking-[3px] text-xs text-primary mb-3">THE ONE HARD CAPABILITY</div>
-              <h2 className="text-6xl font-semibold tracking-tighter leading-none mb-6">
+              <h2 className="text-4xl md:text-6xl font-semibold tracking-tighter leading-none mb-6">
                 Live Mixed-SKU<br />Pallet Optimizer
               </h2>
               <p className="text-xl text-white/80 max-w-lg">
@@ -98,7 +98,7 @@ export default function PalletizerLanding() {
                 Stability score. Density uplift. Full audit trail. Export ready for any robot.
               </p>
               
-              <div className="mt-8 flex gap-4">
+              <div className="mt-8 flex flex-col sm:flex-row gap-4">
                 <Link href="/demo" className="inline-flex items-center gap-2 px-8 py-3.5 bg-white text-black font-semibold rounded-2xl hover:bg-white/90 transition">
                   Launch Live Demo <Zap className="w-4 h-4" />
                 </Link>
@@ -130,7 +130,7 @@ export default function PalletizerLanding() {
       <section id="solutions" className="section-padding max-w-7xl mx-auto px-6">
         <div className="text-center mb-12">
           <div className="text-sm tracking-[3px] text-accent mb-2">BUILT FOR THE TOUGHEST ENVIRONMENTS</div>
-          <h2 className="text-5xl font-semibold tracking-tighter">Solutions that win in every vertical</h2>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tighter">Solutions that win in every vertical</h2>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -156,7 +156,7 @@ export default function PalletizerLanding() {
       {/* FINAL CTA - Ruthless */}
       <section className="section-padding bg-[#020617] border-t border-white/10">
         <div className="max-w-3xl mx-auto px-6 text-center">
-          <h2 className="text-6xl font-semibold tracking-tighter mb-6">Ready to turn palletizing into a profit center?</h2>
+          <h2 className="text-4xl md:text-6xl font-semibold tracking-tighter mb-6">Ready to turn palletizing into a profit center?</h2>
           <p className="text-xl text-white/70 mb-10">Join the manufacturers who are already seeing measurable ROI from live optimization.</p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">

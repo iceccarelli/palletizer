@@ -7,7 +7,7 @@ export default function Pricing() {
     <div className="min-h-screen bg-[#0f172a] pt-20 pb-20 px-6">
       <div className="max-w-5xl mx-auto text-center mb-14">
         <div className="text-accent tracking-[3px] text-sm mb-2">TRANSPARENT. VALUE-BASED. BUILT TO SCALE.</div>
-        <h1 className="text-6xl font-semibold tracking-tighter">Pricing that grows with your ambition</h1>
+        <h1 className="text-4xl md:text-6xl font-semibold tracking-tighter">Pricing that grows with your ambition</h1>
         <p className="mt-4 text-xl text-white/70 max-w-md mx-auto">Start free. Prove ROI on day one. Scale to enterprise when you're ready to dominate your category.</p>
       </div>
 
