@@ -128,8 +128,9 @@ export default function LiveOptimizerDemo() {
     });
 
     const totalVol = boxes.reduce((sum, b) => sum + b.length_mm * b.width_mm * b.height_mm, 0);
-    const palletVol = 1219 * 1016 * 1800;
-    const density = Math.min(0.82, totalVol / palletVol);
+    const stackHeight = currentZ + (boxes.length ? boxes[boxes.length - 1].height_mm : 0);
+    const palletVol = 1219 * 1016 * Math.max(stackHeight, 1);
+    const density = Math.min(1, totalVol / palletVol);
 
     const simulatedPlan: PalletPlan = {
       plan_id: `plan_demo_${Date.now()}`,
@@ -139,7 +140,7 @@ export default function LiveOptimizerDemo() {
         num_layers: layer + 1,
         volume_density: parseFloat(density.toFixed(3)),
         density_uplift_pct: parseFloat(((density - 0.55) / 0.55 * 100).toFixed(1)),
-        stability_score: 0.94 + Math.random() * 0.05,
+        stability_score: parseFloat(Math.min(0.99, 0.78 + density * 0.2).toFixed(3)),
         total_weight_kg: parseFloat(totalWeight.toFixed(1)),
         est_build_time_min: parseFloat((boxes.length * 8 / 60).toFixed(1)),
       },

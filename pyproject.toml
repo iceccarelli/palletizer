@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "palletizer-full-stack"
-version = "0.1.0"
+version = "0.2.0"
 description = "The open-source software foundation for high-throughput end-of-line palletising cells."
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -52,6 +52,7 @@ Changelog = "https://github.com/iceccarelli/palletizer/blob/main/CHANGELOG.md"
 
 [project.scripts]
 palletizer = "palletizer_full.run:main"
+palletize-optimize = "palletizer_full.optimizer:cli"
 
 [tool.setuptools.packages.find]
 include = ["palletizer_full*"]
