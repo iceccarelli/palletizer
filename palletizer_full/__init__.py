@@ -19,19 +19,19 @@ The optimizer is the core capability and is dependency-free:
 from .optimizer import (
     Box,
     Pallet,
-    Placement,
     PalletPlan,
-    optimize_pallet,
+    Placement,
     load_boxes_csv,
+    optimize_pallet,
 )
 
 __version__ = "0.2.0"
 __all__ = [
-    "__version__",
     "Box",
     "Pallet",
-    "Placement",
     "PalletPlan",
-    "optimize_pallet",
+    "Placement",
+    "__version__",
     "load_boxes_csv",
+    "optimize_pallet",
 ]

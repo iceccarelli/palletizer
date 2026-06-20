@@ -1,5 +1,5 @@
 """Tests for the real pallet optimizer: metrics must be computed, not faked."""
-from palletizer_full.optimizer import Box, Pallet, optimize_pallet, load_boxes_csv
+from palletizer_full.optimizer import Box, Pallet, load_boxes_csv, optimize_pallet
 
 SAMPLE = [
     Box("A", 400, 300, 250, 8.5), Box("A", 400, 300, 250, 8.5),

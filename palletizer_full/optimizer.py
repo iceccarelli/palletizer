@@ -21,9 +21,8 @@ from __future__ import annotations
 
 import csv
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-
 
 # Standard GMA pallet, mm. Override per deployment.
 DEFAULT_PALLET_LENGTH_MM = 1219.0
