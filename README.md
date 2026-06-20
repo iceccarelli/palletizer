@@ -139,6 +139,8 @@ See `config.py`, `.env.example`, and `robot_config.py` for the complete list.
 
 The stack is deliberately layered so you can replace or extend any piece without touching the others. Interfaces are strict and well-documented.
 
+```mermaid
+
 flowchart TB
     subgraph Orchestrator["PalletiserOrchestrator - Deterministic 50-100 Hz Control Loop"]
         direction TB
@@ -181,7 +183,7 @@ flowchart TB
     subgraph Planning["Planning & Optimization"]
         Patterns[Pattern Library & Validation]
         Mission[Mission & Order Sequencer]
-        AIPlanner[AI Mixed-Pallet Optimizer (Pro)]
+        AIPlanner["AI Mixed-Pallet Optimizer (Pro)"]
     end
 
     subgraph Power["Power & Thermal"]
@@ -209,6 +211,8 @@ flowchart TB
     Orchestrator --- Power
     Enterprise -.-> Orchestrator
     Gateway -.-> Orchestrator
+
+```
 
 **Package Overview**
 
