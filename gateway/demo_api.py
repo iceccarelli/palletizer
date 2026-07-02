@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +56,7 @@ class SkuIn(BaseModel):
     width_mm: float
     height_mm: float
     weight_kg: float = 0.0
-    fragility: Optional[float] = None
+    fragility: float | None = None
 
 
 class PalletIn(BaseModel):
@@ -68,8 +67,8 @@ class PalletIn(BaseModel):
 
 
 class ConstraintsIn(BaseModel):
-    max_height_mm: Optional[float] = None
-    max_weight_kg: Optional[float] = None
+    max_height_mm: float | None = None
+    max_weight_kg: float | None = None
     heavy_low: bool = False
     fragile_high: bool = False
     fragile_threshold: float = 0.6
@@ -94,7 +93,7 @@ class PlacementIn(BaseModel):
     weight_kg: float = 0.0
     rot_deg: float = 0.0
     layer: int = 0
-    fragility: Optional[float] = None
+    fragility: float | None = None
 
 
 class ValidateIn(BaseModel):
@@ -122,7 +121,6 @@ def _optimize_with_constraints(skus: list[SkuIn], c: ConstraintsIn, pallet: Pall
         return optimize_pallet(boxes, pallet), frag_map
 
     def order_key(b: Box):
-        s = next(x for x in skus if x.sku_id == b.sku_id)
         return (b.weight_kg, b.height_mm) if c.heavy_low else (b.height_mm, 0.0)
 
     fragile_pool: list[Box] = []

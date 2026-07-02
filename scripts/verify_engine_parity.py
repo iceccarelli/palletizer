@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from palletizer_full.optimizer import Box, optimize_pallet  # noqa: E402
+from palletizer_full.optimizer import Box, optimize_pallet
 
 METRIC_KEYS = [
     "num_layers", "stack_height_mm", "total_weight_kg", "volume_density",
@@ -39,8 +39,8 @@ def main() -> int:
     for name, d in data.items():
         boxes = []
         for line in d["csv"]:
-            sku, l, w, h, kg = line.split(",")
-            boxes.append(Box(sku, float(l), float(w), float(h), float(kg)))
+            sku, length, width, height, kg = line.split(",")
+            boxes.append(Box(sku, float(length), float(width), float(height), float(kg)))
         plan = optimize_pallet(boxes)
 
         py_pl = [[p.sku_id, p.x_mm, p.y_mm, p.z_mm, p.length_mm, p.width_mm, p.rot_deg, p.layer]
