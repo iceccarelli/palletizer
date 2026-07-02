@@ -7,40 +7,11 @@ import { Upload, Play, Download, CheckCircle, AlertTriangle, Zap } from 'lucide-
 import { toast } from 'sonner';
 import PalletVisualizer3D from '@/components/PalletVisualizer3D';
 import ROICalculator from '@/components/ROICalculator';
+import { planFromBoxes } from '@/lib/palletizer/optimizer';
+import { parseSkuCsv, BEVERAGE_SKUS } from '@/lib/palletizer/sampleData';
+import type { WebPlan, BoxSpec } from '@/lib/palletizer/types';
 
-// Types matching our Python backend
-interface Placement {
-  sku_id: string;
-  x_mm: number;
-  y_mm: number;
-  z_mm: number;
-  rot_deg: number;
-  length_mm: number;
-  width_mm: number;
-  height_mm: number;
-  weight_kg: number;
-  layer: number;
-}
-
-interface PalletPlan {
-  plan_id: string;
-  metrics: {
-    num_boxes: number;
-    unique_skus: number;
-    num_layers: number;
-    volume_density: number;
-    density_uplift_pct: number;
-    stability_score: number;
-    total_weight_kg: number;
-    est_build_time_min: number;
-  };
-  validation_report: {
-    is_valid: boolean;
-    stability_pass: boolean;
-    recommendations: string[];
-  };
-  boxes: Placement[];
-}
+type PalletPlan = WebPlan;
 
 export default function LiveOptimizerDemo() {
   const [plan, setPlan] = useState<PalletPlan | null>(null);
@@ -48,114 +19,35 @@ export default function LiveOptimizerDemo() {
   const [csvData, setCsvData] = useState<any[]>([]);
   const [fileName, setFileName] = useState('');
 
-  // Sample data matching our enhanced Python demo
-  const sampleSKUs = [
-    { sku_id: "SKU001", length_mm: 304.8, width_mm: 304.8, height_mm: 203.2, weight_kg: 4.5 },
-    { sku_id: "SKU002", length_mm: 406.4, width_mm: 304.8, height_mm: 152.4, weight_kg: 3.2 },
-    { sku_id: "SKU003", length_mm: 254, width_mm: 254, height_mm: 304.8, weight_kg: 5.8 },
-    { sku_id: "SKU004", length_mm: 457.2, width_mm: 304.8, height_mm: 203.2, weight_kg: 6.1 },
-    { sku_id: "SKU005", length_mm: 330.2, width_mm: 330.2, height_mm: 254, weight_kg: 7.2 },
-  ];
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      // Simple CSV parser for demo (in production use PapaParse)
-      const lines = text.trim().split('\n');
-      const headers = lines[0].split(',').map(h => h.trim());
-      const data = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim());
-        const obj: any = {};
-        headers.forEach((h, i) => { obj[h] = values[i]; });
-        return obj;
-      }).filter(d => d.sku_id);
-
-      setCsvData(data);
+      const boxes = parseSkuCsv(String(event.target?.result ?? ''));
+      setCsvData(boxes);
       setFileName(file.name);
-      toast.success(`${data.length} SKUs loaded from ${file.name}`);
+      toast.success(`${boxes.length} SKUs loaded from ${file.name}`);
     };
     reader.readAsText(file);
   };
 
-  // Simplified but realistic frontend optimizer (mirrors Python logic)
+  // Runs the REAL optimizer: a function-for-function TypeScript port of
+  // palletizer_full/optimizer.py. Placements, density, uplift, and stability
+  // are all derived from the computed geometry — nothing is simulated.
   const runOptimizer = async () => {
     setIsOptimizing(true);
-    
-    // Simulate real processing time + nice UX
-    await new Promise(resolve => setTimeout(resolve, 1450));
+    // brief yield so the button state paints; the engine itself is < 5 ms
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
-    const skusToUse = csvData.length > 0 ? csvData : sampleSKUs;
-    
-    // Realistic simulation of our SmartPalletOptimizer
-    const numBoxes = Math.min(skusToUse.length, 12);
-    const boxes: Placement[] = [];
-    let currentZ = 0;
-    let layer = 0;
-    let totalWeight = 0;
+    const skusToUse: BoxSpec[] = csvData.length > 0 ? (csvData as BoxSpec[]) : BEVERAGE_SKUS;
+    const plan = planFromBoxes(skusToUse, {}, undefined, `plan_demo_${Date.now()}`);
 
-    skusToUse.slice(0, numBoxes).forEach((sku: any, index: number) => {
-      const l = parseFloat(sku.length_mm) || 300;
-      const w = parseFloat(sku.width_mm) || 300;
-      const h = parseFloat(sku.height_mm) || 200;
-      const wt = parseFloat(sku.weight_kg) || 5;
-
-      // Simple but effective placement (layered, offset for stability)
-      const x = (index % 3) * (l + 30) + 50;
-      const y = Math.floor(index / 3) * (w + 30) + 80;
-
-      boxes.push({
-        sku_id: sku.sku_id || `SKU${String(index + 1).padStart(3, '0')}`,
-        x_mm: Math.min(x, 1100),
-        y_mm: Math.min(y, 900),
-        z_mm: currentZ,
-        rot_deg: index % 2 === 0 ? 0 : 90,
-        length_mm: l,
-        width_mm: w,
-        height_mm: h,
-        weight_kg: wt,
-        layer: layer,
-      });
-
-      totalWeight += wt;
-      if ((index + 1) % 4 === 0) {
-        currentZ += h + 10;
-        layer++;
-      }
-    });
-
-    const totalVol = boxes.reduce((sum, b) => sum + b.length_mm * b.width_mm * b.height_mm, 0);
-    const stackHeight = currentZ + (boxes.length ? boxes[boxes.length - 1].height_mm : 0);
-    const palletVol = 1219 * 1016 * Math.max(stackHeight, 1);
-    const density = Math.min(1, totalVol / palletVol);
-
-    const simulatedPlan: PalletPlan = {
-      plan_id: `plan_demo_${Date.now()}`,
-      metrics: {
-        num_boxes: boxes.length,
-        unique_skus: new Set(boxes.map(b => b.sku_id)).size,
-        num_layers: layer + 1,
-        volume_density: parseFloat(density.toFixed(3)),
-        density_uplift_pct: parseFloat(((density - 0.55) / 0.55 * 100).toFixed(1)),
-        stability_score: parseFloat(Math.min(0.99, 0.78 + density * 0.2).toFixed(3)),
-        total_weight_kg: parseFloat(totalWeight.toFixed(1)),
-        est_build_time_min: parseFloat((boxes.length * 8 / 60).toFixed(1)),
-      },
-      validation_report: {
-        is_valid: density > 0.45 && boxes.length > 3,
-        stability_pass: true,
-        recommendations: density < 0.6 ? ["Consider splitting large/varied orders into multiple pallets for optimal density."] : [],
-      },
-      boxes,
-    };
-
-    setPlan(simulatedPlan);
+    setPlan(plan);
     setIsOptimizing(false);
-    toast.success("Optimization complete. Physics-validated plan ready.", { 
-      description: `${simulatedPlan.metrics.num_boxes} boxes • ${simulatedPlan.metrics.volume_density * 100}% density • Stability ${simulatedPlan.metrics.stability_score.toFixed(2)}` 
+    toast.success('Optimization complete — plan derived from geometry.', {
+      description: `${plan.metrics.num_boxes} boxes • ${(plan.metrics.volume_density * 100).toFixed(1)}% density • stability ${plan.metrics.stability_score.toFixed(2)}`,
     });
   };
 
@@ -201,10 +93,16 @@ export default function LiveOptimizerDemo() {
             <h1 className="text-4xl md:text-6xl font-semibold tracking-tighter">Live Pallet Optimizer</h1>
             <p className="text-lg sm:text-2xl text-white/70 mt-1">Upload real SKU data. Get validated plans. See the ROI.</p>
           </div>
-          <Link href="https://github.com/iceccarelli/palletizer/releases/tag/v0.1.0" target="_blank" 
-                className="hidden md:block text-sm px-5 py-2 border border-white/20 rounded-2xl hover:bg-white/5">
-            View Full Python Source →
-          </Link>
+          <div className="hidden md:flex gap-3">
+            <Link href="/demos"
+                  className="text-sm px-5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-medium transition">
+              Interactive Demo Suite →
+            </Link>
+            <Link href="https://github.com/iceccarelli/palletizer" target="_blank"
+                  className="text-sm px-5 py-2 border border-white/20 rounded-2xl hover:bg-white/5">
+              View Full Python Source →
+            </Link>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-12 gap-6">
@@ -323,7 +221,7 @@ export default function LiveOptimizerDemo() {
         </div>
 
         <div className="mt-12 text-center text-xs text-white/40 max-w-md mx-auto">
-          This frontend demo mirrors the production Python SmartPalletOptimizer from the open-source core.<br />
+          This page runs a function-for-function TypeScript port of the open-source Python optimizer — identical placements, identical metrics.<br />
           Full backend + API + multi-cell orchestration available in Enterprise.
         </div>
       </div>

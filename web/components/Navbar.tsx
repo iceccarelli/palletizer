@@ -20,6 +20,7 @@ export default function Navbar() {
   const navLinks = [
     { href: "/#product", label: "Product" },
     { href: "/demo", label: "Live Optimizer" },
+    { href: "/demos", label: "Demo Suite" },
     { href: "/#solutions", label: "Solutions" },
     { href: "/roi-calculator", label: "ROI Calculator" },
     { href: "/pricing", label: "Pricing" },

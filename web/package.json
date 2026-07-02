@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "parity": "tsx scripts/parity-dump.ts && cd .. && python3 scripts/verify_engine_parity.py"
   },
   "dependencies": {
     "@react-three/drei": "^9.105.6",
@@ -24,7 +25,9 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.3.0",
     "three": "^0.165.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@react-three/rapier": "^1.5.0",
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
     "@types/node": "^20",

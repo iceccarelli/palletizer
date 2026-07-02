@@ -11,7 +11,6 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![CI](https://github.com/iceccarelli/palletizer/actions/workflows/ci.yml/badge.svg)](https://github.com/iceccarelli/palletizer/actions/workflows/ci.yml)
 [![Live Demo](https://img.shields.io/badge/live%20demo-palletizer--app.vercel.app-000?logo=vercel&logoColor=white)](https://palletizer-app.vercel.app)
-[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](https://github.com/iceccarelli/palletizer)
 [![Enterprise Ready](https://img.shields.io/badge/enterprise-ready-gold.svg)](https://github.com/iceccarelli/palletizer)
 [![Join Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/palletizer)
 
@@ -103,7 +102,7 @@ The reliable engine you can inspect, modify, deploy, and trust.
 *No more hand-crafted patterns or trial-and-error. Our engine (and upcoming AI agent) delivers production-ready, physically validated stacks automatically.*
 
 **Live Demos & Getting Hands-On**
-- **Instant local demo** (simulated robot + perception): `python -m palletizer_full.run --sim` — full control loop, telemetry, and a complete palletising cycle in seconds.
+- **Instant optimizer demo**: `pip install palletizer-full-stack && palletize-optimize examples/sample_skus.csv` - real shelf-packing, computed density, and deterministic stability in milliseconds.
 - **Hardware integration examples**: `examples/basic_palletise.py`, `custom_gripper.py` (vacuum with pressure feedback), `monitoring_telemetry.py`.
 - **Docker one-liner** for reproducible environments.
 - **Reference implementations** for popular cobots coming in examples/ and certified connectors (Pro).
@@ -120,11 +119,13 @@ Run the test suite with coverage: `pytest --cov=palletizer_full tests/`
 git clone https://github.com/iceccarelli/palletizer.git
 cd palletizer
 
-# Install with all dev + demo extras
-pip install -e ".[dev]"
+# Quickest path: install the optimizer from PyPI
+pip install palletizer-full-stack
+palletize-optimize examples/sample_skus.csv   # real placements, density, stability
 
-# Run the full simulated end-to-end demo (instant gratification)
-python -m palletizer_full.run --sim --pattern mixed_sku_demo
+# Or from source, for development
+pip install -e ".[dev]"
+pytest -q
 
 # Or spin up the complete stack in Docker (recommended for evaluation)
 docker compose up --build
