@@ -41,3 +41,5 @@ docker-compose.override.yml
 # Web folder
 web/node_modules/
 web/.next/
+.vercel
+.env*
