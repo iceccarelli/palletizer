@@ -70,6 +70,9 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
   const [validation, setValidation] = useState<StabilityValidation | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [edited, setEdited] = useState(false);
+  /** The engine's own result for the current SKUs — the score to beat. */
+  const [engineBest, setEngineBest] = useState<{ stability: number; density: number } | null>(null);
+  const beatAnnounced = useRef(false);
   const lastDragValidate = useRef(0);
 
   const optimize = useCallback(
@@ -80,6 +83,8 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
       setValidation(validatePlacements(p.boxes, pallet));
       setEdited(false);
       setSelected(null);
+      setEngineBest({ stability: p.metrics.stability_score, density: p.metrics.volume_density });
+      beatAnnounced.current = false;
       return p;
     },
     [pallet],
@@ -101,6 +106,26 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
     [plan, pallet],
   );
 
+  /** Honest celebration: the shelf heuristic is good, not optimal — a human CAN beat it. */
+  const maybeAnnounceBeat = useCallback(
+    (next: WebPlan, v: StabilityValidation) => {
+      if (!engineBest || beatAnnounced.current) return;
+      const s = next.metrics.stability_score;
+      const d = next.metrics.volume_density;
+      // Density beats are celebrated (and persisted) by ScoreDuel in game.tsx;
+      // this toast owns stability beats only, so the two never double-fire.
+      void d;
+      if (v.is_stable && s > engineBest.stability + 0.005) {
+        beatAnnounced.current = true;
+        toast.success('You beat the engine! 🏆', {
+          description: `Your layout scores ${s.toFixed(3)} stability vs the engine's ${engineBest.stability.toFixed(3)} — same math, human intuition wins this round.`,
+          duration: 7000,
+        });
+      }
+    },
+    [engineBest],
+  );
+
   /** Commit: settle onto the highest supporting surface, re-derive layer, re-validate everything. */
   const onDragEnd = useCallback(
     ({ index, x_mm, y_mm }: SceneHandlePayload) => {
@@ -112,10 +137,12 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
       placements[index] = moved;
       const next = recomputePlanFromPlacements(plan, placements, pallet);
       setPlan(next);
-      setValidation(validatePlacements(placements, pallet));
+      const v = validatePlacements(placements, pallet);
+      setValidation(v);
       setEdited(true);
+      maybeAnnounceBeat(next, v);
     },
-    [plan, pallet],
+    [plan, pallet, maybeAnnounceBeat],
   );
 
   const autoFix = useCallback(() => {
@@ -149,6 +176,7 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
     skus,
     plan,
     setPlan,
+    engineBest,
     validation,
     selected,
     setSelected,
@@ -166,7 +194,17 @@ export function useLivePlan(pallet: PalletSpec = DEFAULT_PALLET) {
 // UI blocks shared by every demo
 // ---------------------------------------------------------------------------
 
-export function MetricsRow({ plan, validation }: { plan: WebPlan; validation: StabilityValidation | null }) {
+export function MetricsRow({
+  plan,
+  validation,
+  engineBest,
+  edited,
+}: {
+  plan: WebPlan;
+  validation: StabilityValidation | null;
+  engineBest?: { stability: number; density: number } | null;
+  edited?: boolean;
+}) {
   const m = plan.metrics;
   const cells = [
     {
@@ -189,6 +227,7 @@ export function MetricsRow({ plan, validation }: { plan: WebPlan; validation: St
     { label: 'Stack Height', value: `${m.stack_height_mm.toFixed(0)} mm`, sub: plan.engine === 'python-core' ? 'python core' : 'TS engine (same math)' },
   ];
   return (
+    <>
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
       {cells.map((c, i) => (
         <div key={i} className={`glass p-4 rounded-2xl border ${c.alert ? 'border-red-500/50' : 'border-white/10'}`}>
@@ -200,6 +239,13 @@ export function MetricsRow({ plan, validation }: { plan: WebPlan; validation: St
         </div>
       ))}
     </div>
+      {edited && engineBest && (
+        <ScoreDuel
+          engine={engineBest}
+          you={{ stability: plan.metrics.stability_score, density: plan.metrics.volume_density }}
+        />
+      )}
+    </>
   );
 }
 
@@ -322,6 +368,57 @@ export function PilotCTA({ plan }: { plan: WebPlan | null }) {
       >
         Request a pilot →
       </Link>
+    </div>
+  );
+}
+
+/**
+ * The honest game loop: your edited layout vs the engine's own result, scored
+ * by the exact same math. The engine is a good heuristic, not an oracle —
+ * beating it is genuinely possible and genuinely means something.
+ */
+export function ScoreDuel({
+  engine,
+  you,
+}: {
+  engine: { stability: number; density: number };
+  you: { stability: number; density: number };
+}) {
+  const dS = you.stability - engine.stability;
+  const dD = you.density - engine.density;
+  const winning = dS > 0.005 || dD > 0.005;
+  const tied = Math.abs(dS) <= 0.005 && Math.abs(dD) <= 0.005;
+  const Bar = ({ label, engineV, youV, fmt }: { label: string; engineV: number; youV: number; fmt: (n: number) => string }) => {
+    const max = Math.max(engineV, youV, 0.0001);
+    return (
+      <div className="flex-1 min-w-[220px]">
+        <div className="text-[10px] tracking-[2px] text-white/50 mb-1">{label}</div>
+        {[
+          { tag: 'ENGINE', v: engineV, cls: 'bg-white/25' },
+          { tag: 'YOU', v: youV, cls: youV >= engineV ? 'bg-emerald-500' : 'bg-amber-500' },
+        ].map((r) => (
+          <div key={r.tag} className="flex items-center gap-2 mb-1">
+            <span className="w-12 text-[10px] text-white/50">{r.tag}</span>
+            <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${r.cls} transition-all duration-500`} style={{ width: `${(r.v / max) * 100}%` }} />
+            </div>
+            <span className="w-14 text-right text-xs font-mono">{fmt(r.v)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <div className={`mt-3 p-4 rounded-2xl border flex flex-wrap gap-6 items-center ${winning ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-white/10 bg-white/[0.03]'}`}>
+      <div className="min-w-[120px]">
+        <div className="text-[10px] tracking-[2px] text-white/50">YOU vs ENGINE</div>
+        <div className={`text-sm font-semibold ${winning ? 'text-emerald-400' : tied ? 'text-white/70' : 'text-amber-400'}`}>
+          {winning ? 'You\u2019re ahead 🏆' : tied ? 'Dead heat' : 'Engine leads'}
+        </div>
+        <div className="text-[10px] text-white/40 mt-0.5">Same math scores both</div>
+      </div>
+      <Bar label="STABILITY" engineV={engine.stability} youV={you.stability} fmt={(n) => n.toFixed(3)} />
+      <Bar label="DENSITY" engineV={engine.density} youV={you.density} fmt={(n) => `${(n * 100).toFixed(1)}%`} />
     </div>
   );
 }

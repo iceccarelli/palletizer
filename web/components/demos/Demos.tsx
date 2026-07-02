@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Play, Pause, Zap, FlaskConical, ArrowRight, Bot, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
+import { MissionBanner, ScoreDuel, useMission, HintChip } from './game';
 import {
   BoxSpec,
   DEFAULT_PALLET,
@@ -15,7 +16,8 @@ import { planFromBoxes } from '@/lib/palletizer/optimizer';
 import { validatePlacements } from '@/lib/palletizer/stability';
 import { parseConstraints } from '@/lib/palletizer/copilot';
 import { urscriptFor, downloadText } from '@/lib/palletizer/exports';
-import { BEVERAGE_SKUS, PHARMA_SKUS, ecommChaosSkus, multiPalletSkus, parseSkuCsv } from '@/lib/palletizer/sampleData';
+import { BEVERAGE_SKUS,
+  BEVERAGE_ORDER, PHARMA_SKUS, ecommChaosSkus, multiPalletSkus, parseSkuCsv } from '@/lib/palletizer/sampleData';
 import {
   ExportRow,
   MetricsRow,
@@ -37,6 +39,16 @@ export function DemoProduction() {
   const live = useLivePlan();
   const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(false);
+  const mission = useMission('main');
+  const sawUnstable = useRef(false);
+
+  // Mission: Wreck & Rescue — verified purely from real validation state.
+  useEffect(() => {
+    const v = live.validation;
+    if (!v || !live.edited) return;
+    if (!v.is_stable) sawUnstable.current = true;
+    else if (sawUnstable.current && v.stability_score >= 0.8) mission.complete();
+  }, [live.validation, live.edited, mission]);
 
   const runViaApi = useCallback(
     async (boxes: BoxSpec[], constraints: OptimizeConstraints = {}) => {
@@ -100,18 +112,28 @@ export function DemoProduction() {
           </label>
           {fileName && <div className="mt-2 text-emerald-400 text-xs">{fileName} loaded</div>}
           <button
-            onClick={() => runViaApi(BEVERAGE_SKUS)}
+            onClick={() => runViaApi(BEVERAGE_ORDER)}
             disabled={loading}
             className="mt-5 w-full flex items-center justify-center gap-2 py-3.5 bg-primary hover:bg-primary/90 disabled:opacity-60 font-semibold rounded-2xl transition"
           >
-            {loading ? 'Optimizing…' : (<><Zap className="w-4 h-4" /> Run with sample beverage SKUs</>)}
+            {loading ? 'Optimizing…' : (<><Zap className="w-4 h-4" /> Run a sample 42-box beverage order</>)}
           </button>
         </div>
       ) : (
         <>
-          <MetricsRow plan={live.plan} validation={live.validation} />
+          <MissionBanner demo="main" />
+          <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
+          <ScoreDuel
+            engine={live.engineBest}
+            yours={{
+              density: live.plan.metrics.volume_density,
+              stability: live.validation?.stability_score ?? live.plan.metrics.stability_score,
+            }}
+            edited={live.edited}
+          />
           <div className="grid lg:grid-cols-12 gap-4">
-            <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
+            <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden relative">
+              <HintChip show={!live.edited}>👆 Grab any box — colors and scores react live</HintChip>
               <Scene
                 boxes={live.plan.boxes}
                 perBox={live.validation?.per_box}
@@ -154,8 +176,20 @@ export function DemoEcomm() {
   const [speedMode, setSpeedMode] = useState(false);
   const [visible, setVisible] = useState(0);
   const [building, setBuilding] = useState(false);
+  const mission = useMission('ecomm');
+  const builtOnce = useRef(false);
+  const toggledOnce = useRef(false);
+
+  // Mission: watch a full build AND flip the trade-off toggle at least once.
+  useEffect(() => {
+    if (!building && visible > 0) {
+      builtOnce.current = true;
+      if (toggledOnce.current) mission.complete();
+    }
+  }, [building, visible, mission]);
 
   const skus = useMemo(() => ecommChaosSkus(36, 42), []);
+  // (mission wiring above; banner rendered in JSX below)
   const bothPlans = useMemo(
     () => ({
       normal: planFromBoxes(skus, {}, undefined, 'plan_ecomm_dense'),
@@ -189,7 +223,8 @@ export function DemoEcomm() {
 
   return (
     <div className="space-y-4">
-      <MetricsRow plan={live.plan} validation={live.validation} />
+      <MissionBanner demo="ecomm" />
+      <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene
@@ -208,7 +243,7 @@ export function DemoEcomm() {
             <div className="text-sm font-semibold mb-3">Throughput vs density — measured, not marketed</div>
             <label className="flex items-center justify-between text-sm cursor-pointer">
               <span>High-velocity mode (no 90° rotations)</span>
-              <input type="checkbox" checked={speedMode} onChange={(e) => setSpeedMode(e.target.checked)} className="accent-emerald-500 w-4 h-4" />
+              <input type="checkbox" checked={speedMode} onChange={(e) => { toggledOnce.current = true; setSpeedMode(e.target.checked); }} className="accent-emerald-500 w-4 h-4" />
             </label>
             <div className="mt-3 text-xs text-white/60 space-y-1 font-mono">
               <div>dense: {(bothPlans.normal.metrics.volume_density * 100).toFixed(1)}% • {bothPlans.normal.metrics.est_robot_cycle_s.toFixed(0)}s cycle</div>
@@ -249,6 +284,18 @@ export function DemoStress() {
   const [settling, setSettling] = useState(false);
   const [settleResult, setSettleResult] = useState<SettleResult | null>(null);
   const [before, setBefore] = useState<WebPlan | null>(null);
+  const mission = useMission('stress');
+  const brokeIt = useRef(false);
+
+  // "Broke it" = the deterministic score drops below validity OR the physics
+  // drop test measures a collapse — both are real engine states.
+  useEffect(() => {
+    const v = live.validation;
+    if (v && !v.is_stable) brokeIt.current = true;
+  }, [live.validation]);
+  useEffect(() => {
+    if (settleResult && (settleResult.toppled_count > 0 || settleResult.max_displacement_mm > 100)) brokeIt.current = true;
+  }, [settleResult]);
 
   useEffect(() => {
     live.optimize(PHARMA_SKUS, {}, 'plan_pharma_base');
@@ -282,6 +329,7 @@ export function DemoStress() {
     if (!live.plan) return;
     setBefore(live.plan);
     const p = live.optimize(PHARMA_SKUS, { heavy_low: true, fragile_high: true }, 'plan_pharma_restab');
+    if (brokeIt.current && p.metrics.stability_score >= 0.85) mission.complete();
     setSettleResult(null);
     toast.success('Re-optimized with fragility + weight constraints', {
       description: `Stability ${p.metrics.stability_score.toFixed(3)} — glass SKUs now on top with nothing above them.`,
@@ -292,7 +340,8 @@ export function DemoStress() {
 
   return (
     <div className="space-y-4">
-      <MetricsRow plan={live.plan} validation={live.validation} />
+      <MissionBanner demo="stress" />
+      <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
           {settling ? (
@@ -419,6 +468,16 @@ export function DemoMultiPallet() {
     return [buildPallet(aSkus, 'plan_A'), buildPallet(bSkus, 'plan_B')];
   });
   const [sel, setSel] = useState<{ pallet: number; index: number } | null>(null);
+  const mission = useMission('multi');
+  const movedOnce = useRef(false);
+
+  useEffect(() => {
+    if (
+      movedOnce.current &&
+      pallets.every((p) => p.plan.metrics.stability_score >= 0.85 && p.plan.validation_report.is_valid)
+    )
+      mission.complete();
+  }, [pallets, mission]);
 
   const moveSelected = (to: number) => {
     if (!sel) return;
@@ -433,6 +492,7 @@ export function DemoMultiPallet() {
     const next = [...pallets];
     next[from] = buildPallet(fromSkus, from === 0 ? 'plan_A' : 'plan_B');
     next[to] = buildPallet(toSkus, to === 0 ? 'plan_A' : 'plan_B');
+    movedOnce.current = true;
     setPallets(next);
     setSel(null);
     toast.success(`${box.sku_id} moved to pallet ${to === 0 ? 'A' : 'B'} — both pallets re-optimized and re-validated.`);
@@ -445,6 +505,7 @@ export function DemoMultiPallet() {
 
   return (
     <div className="space-y-4">
+      <MissionBanner demo="multi" />
       <div className="grid md:grid-cols-2 gap-4">
         {pallets.map((p, pi) => (
           <div key={pi} className="space-y-3">
@@ -518,6 +579,7 @@ export function DemoRobot() {
   const live = useLivePlan();
   const [anim, setAnim] = useState<RobotAnim>({ activeIndex: -1, progress: 0, placedCount: 0 });
   const [playing, setPlaying] = useState(false);
+  const mission = useMission('robot');
   const [speed, setSpeed] = useState(1);
   const raf = useRef<number>();
 
@@ -565,6 +627,8 @@ export function DemoRobot() {
   const exportRemaining = () => {
     if (!live.plan) return;
     const rest = live.plan.boxes.slice(anim.placedCount);
+    const midRun = anim.placedCount > 0 && anim.placedCount < live.plan.boxes.length;
+    if (midRun && live.edited && !playing) mission.complete();
     downloadText(urscriptFor(`${live.plan.plan_id}_remaining`, rest), `${live.plan.plan_id}_remaining.urscript`);
     toast.success(`URScript for the ${rest.length} remaining picks downloaded`, {
       description: 'Edited mid-run — the sequence adapts, the robot code follows.',
@@ -573,7 +637,8 @@ export function DemoRobot() {
 
   return (
     <div className="space-y-4">
-      <MetricsRow plan={live.plan} validation={live.validation} />
+      <MissionBanner demo="robot" />
+      <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene
@@ -649,6 +714,7 @@ interface ChatEntry {
 
 export function DemoTwin() {
   const live = useLivePlan();
+  const mission = useMission('twin');
   const [skus, setSkus] = useState<BoxSpec[]>(PHARMA_SKUS);
   const [mode, setMode] = useState<'client' | 'backend'>('client');
   const [input, setInput] = useState('');
@@ -684,8 +750,10 @@ export function DemoTwin() {
       let explanation: string;
       let parserLabel: string;
 
+      let appliedNow = 0;
       if (mode === 'client') {
         const parsed = parseConstraints(text);
+        appliedNow = Object.keys(parsed.constraints).filter((k) => k !== 'fragile_threshold').length;
         nextConstraints = { ...constraints, ...parsed.constraints };
         explanation = parsed.explanation;
         parserLabel = 'client • deterministic rule parser';
@@ -698,10 +766,12 @@ export function DemoTwin() {
         if (!res.ok) throw new Error(`API ${res.status}`);
         const data = await res.json();
         nextConstraints = { ...constraints, ...data.constraints };
+        appliedNow = Object.keys(data.constraints ?? {}).filter((k) => k !== 'fragile_threshold').length;
         explanation = data.explanation;
         parserLabel = data.parser === 'llm' ? 'backend • LLM constraint parser' : 'backend • rule parser fallback (no API key configured)';
       }
 
+      if (appliedNow >= 2) mission.complete();
       setConstraints(nextConstraints);
       // measure the delta on the freshly computed plan
       const after = planFromBoxes(skus, nextConstraints, undefined, 'plan_twin');
@@ -726,7 +796,8 @@ export function DemoTwin() {
 
   return (
     <div className="space-y-4">
-      <MetricsRow plan={live.plan} validation={live.validation} />
+      <MissionBanner demo="twin" />
+      <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-7 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene

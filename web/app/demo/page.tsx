@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import PalletVisualizer3D from '@/components/PalletVisualizer3D';
 import ROICalculator from '@/components/ROICalculator';
 import { planFromBoxes } from '@/lib/palletizer/optimizer';
-import { parseSkuCsv, BEVERAGE_SKUS } from '@/lib/palletizer/sampleData';
+import { parseSkuCsv, BEVERAGE_ORDER } from '@/lib/palletizer/sampleData';
 import type { WebPlan, BoxSpec } from '@/lib/palletizer/types';
 
 type PalletPlan = WebPlan;
@@ -41,7 +41,7 @@ export default function LiveOptimizerDemo() {
     // brief yield so the button state paints; the engine itself is < 5 ms
     await new Promise((resolve) => setTimeout(resolve, 350));
 
-    const skusToUse: BoxSpec[] = csvData.length > 0 ? (csvData as BoxSpec[]) : BEVERAGE_SKUS;
+    const skusToUse: BoxSpec[] = csvData.length > 0 ? (csvData as BoxSpec[]) : BEVERAGE_ORDER;
     const plan = planFromBoxes(skusToUse, {}, undefined, `plan_demo_${Date.now()}`);
 
     setPlan(plan);
@@ -117,7 +117,7 @@ export default function LiveOptimizerDemo() {
               <label className="flex flex-col items-center justify-center border-2 border-dashed border-white/30 hover:border-primary/60 rounded-2xl py-9 cursor-pointer transition">
                 <Upload className="w-8 h-8 mb-3 text-white/60" />
                 <span className="font-medium">Drop CSV or click to upload</span>
-                <span className="text-xs text-white/50 mt-1">or use sample data below</span>
+                <span className="text-xs text-white/50 mt-1">or run the sample 42-box order</span>
                 <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
               </label>
               
@@ -165,8 +165,8 @@ export default function LiveOptimizerDemo() {
                   {/* Metrics Bar */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
-                      { label: "Density", value: `${(plan.metrics.volume_density * 100).toFixed(1)}%`, sub: `+${plan.metrics.density_uplift_pct}% uplift` },
-                      { label: "Stability", value: plan.metrics.stability_score.toFixed(2), sub: "Physics validated" },
+                      { label: "Density", value: `${(plan.metrics.volume_density * 100).toFixed(1)}%`, sub: `${plan.metrics.density_uplift_pct >= 0 ? "+" : ""}${plan.metrics.density_uplift_pct}% vs naive stacking` },
+                      { label: "Stability", value: plan.metrics.stability_score.toFixed(2), sub: "Support × CoM model" },
                       { label: "Boxes / Layers", value: `${plan.metrics.num_boxes} / ${plan.metrics.num_layers}`, sub: `${plan.metrics.unique_skus} SKUs` },
                       { label: "Build Time", value: `${plan.metrics.est_build_time_min} min`, sub: "Est. robot cycle" },
                     ].map((m, i) => (
@@ -214,6 +214,21 @@ export default function LiveOptimizerDemo() {
 
                   {/* ROI Quick View */}
                   <ROICalculator plan={plan} />
+
+                  {/* The hook into the game loop */}
+                  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                    className="p-6 rounded-3xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950/40 to-transparent flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                      <div className="font-semibold text-lg">Think you can beat this plan? 🏆</div>
+                      <div className="text-sm text-white/60 mt-0.5">
+                        Drag the boxes yourself in the Interactive Suite — the same math scores your layout against the
+                        engine's, live. Break it, fix it, beat it.
+                      </div>
+                    </div>
+                    <Link href="/demos" className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-semibold whitespace-nowrap transition">
+                      Enter the Demo Suite →
+                    </Link>
+                  </motion.div>
                 </motion.div>
               )}
             </AnimatePresence>

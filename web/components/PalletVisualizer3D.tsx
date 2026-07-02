@@ -58,11 +58,15 @@ function BoxMesh({ placement, index }: { placement: Placement; index: number }) 
 export default function PalletVisualizer3D({ plan }: { plan: PalletPlan }) {
   const palletLength = 1.219;
   const palletWidth = 1.016;
+  const stackH = Math.max(0.3, (plan.metrics?.stack_height_mm ?? 800) / 1000);
+  // camera distance scales with the larger of footprint diagonal and stack height
+  const camR = Math.max(2.1, 1.35 * Math.max(1.6, stackH * 1.9));
+  const target: [number, number, number] = [0, stackH * 0.45, 0];
 
   return (
     <div className="three-container w-full h-[420px] relative">
       <Canvas 
-        camera={{ position: [2.8, 2.2, 2.8], fov: 42 }} 
+        camera={{ position: [camR, camR * 0.78, camR], fov: 42 }} 
         style={{ background: '#0a0f1a' }}
       >
         <ambientLight intensity={0.6} />
@@ -91,7 +95,7 @@ export default function PalletVisualizer3D({ plan }: { plan: PalletPlan }) {
           enableZoom={true} 
           minDistance={1.2} 
           maxDistance={6}
-          target={[0, 0.8, 0]}
+          target={target}
         />
         
         {/* Grid / floor hint */}
