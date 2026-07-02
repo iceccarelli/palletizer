@@ -31,7 +31,7 @@ const RULES: Rule[] = [
   },
   {
     id: 'heavy_low',
-    test: /(heavy|weight|mass|bottom|low(er)? layers|stable|stability|safe)/i,
+    test: /(heav(?:y|iest)|mass|bottom|low(?:er)?\s+layers?|stable|stability)/i,
     apply: (c) => {
       c.heavy_low = true;
     },
@@ -47,17 +47,17 @@ const RULES: Rule[] = [
   },
   {
     id: 'max_height',
-    test: /(?:max(?:imum)?\s*height|height\s*(?:limit|cap|under|below|max)|no taller than)\D*(\d{3,4})\s*(?:mm)?/i,
+    test: /(?:(?:max(?:imum)?\s*height|height\s*(?:limit|cap|under|below|max)|no(?:thing)?\s+(?:goes\s+)?taller\s+than|shorter\s+than|cap(?:ped)?\s+(?:the\s+stack\s+)?at)\D{0,12}(\d{3,4})\s*(?:mm)?|(?:under|below|not?\s+(?:above|over|exceed(?:ing)?))\s*(\d{3,4})\s*mm)/i,
     apply: (c, m) => {
-      c.max_height_mm = parseInt(m[1], 10);
+      c.max_height_mm = parseInt(m[1] ?? m[2], 10);
     },
     describe: 'Stack height capped at the requested value',
   },
   {
     id: 'max_weight',
-    test: /(?:max(?:imum)?\s*weight|weight\s*(?:limit|cap|under|below))\D*(\d{2,4})\s*(?:kg)?/i,
+    test: /(?:(?:max(?:imum)?\s*weight|weight\s*(?:limit|cap|under|below)|no\s+heavier\s+than)\D{0,12}(\d{2,4})\s*(?:kg)?|(?:under|below|not?\s+(?:above|over|exceed(?:ing)?))\s*(\d{2,4})\s*kg)/i,
     apply: (c, m) => {
-      c.max_weight_kg = parseInt(m[1], 10);
+      c.max_weight_kg = parseInt(m[1] ?? m[2], 10);
     },
     describe: 'Total pallet weight capped at the requested value',
   },

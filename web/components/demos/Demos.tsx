@@ -252,19 +252,30 @@ export function DemoEcomm() {
                 Δ {delta.density.toFixed(1)} pts density for {delta.cycle.toFixed(0)}s of cycle time
               </div>
             </div>
+            <div className={`mt-2 text-[11px] leading-snug ${Math.abs(delta.density) < 0.5 ? 'text-emerald-300/90' : 'text-amber-300/90'}`}>
+              {Math.abs(delta.density) < 0.5
+                ? 'Verdict: rotations buy nothing on this order — high-velocity mode is FREE here. That is a measurement, not a guess: the engine just told you where you can run faster at zero density cost.'
+                : 'Verdict: speed has a real price on this order — the delta above is what a faster cycle costs you in trailer space.'}
+            </div>
             <div className="text-[10px] text-white/40 mt-2">
               Both plans are computed live from the same 36-SKU seeded dataset. Cycle estimate = 7.5 s per pick + 1.8 s
               per 90° wrist rotation.
             </div>
             <button
               onClick={() => {
+                live.optimize(skus, speedMode ? { speed_mode: true } : {}, speedMode ? 'plan_ecomm_fast' : 'plan_ecomm_dense');
                 setVisible(0);
                 setBuilding(true);
               }}
               className="mt-3 w-full py-2 text-xs border border-white/20 hover:bg-white/5 rounded-xl transition"
             >
-              Replay layer-by-layer build
+              {live.edited ? 'Reset to engine plan & replay build' : 'Replay layer-by-layer build'}
             </button>
+            {live.edited && (
+              <div className="mt-1.5 text-[10px] text-amber-300/80">
+                You have hand-edited this load — the scores above track YOUR layout. Reset discards your edits.
+              </div>
+            )}
           </div>
           <ValidationBanner validation={live.validation} />
           <ExportRow plan={live.plan} edited={live.edited} />

@@ -40,9 +40,24 @@ export function ecommChaosSkus(n = 36, seed = 42): BoxSpec[] {
   const rnd = mulberry32(seed);
   const out: BoxSpec[] = [];
   for (let i = 0; i < n; i++) {
-    const l = 180 + Math.round(rnd() * 300); // 180–480 mm
-    const w = 150 + Math.round(rnd() * 250);
-    const h = 100 + Math.round(rnd() * 250);
+    // Realistic e-comm carton mix. ~45% elongated (2–3.5:1) — garment boxes,
+    // shelf packs, long goods — where the 0°/90° decision genuinely changes
+    // shelf efficiency, so the speed-vs-density trade-off is visible instead
+    // of a computed zero. Distribution choice is a demo-design decision; every
+    // metric shown is still derived from the geometry.
+    const kind = rnd();
+    let l: number, w: number;
+    if (kind < 0.45) {
+      l = 400 + Math.round(rnd() * 220); // 400–620 mm elongated
+      w = 150 + Math.round(rnd() * 90); // 150–240 mm
+    } else if (kind < 0.8) {
+      l = 250 + Math.round(rnd() * 150); // 250–400 mm medium
+      w = 180 + Math.round(rnd() * 120);
+    } else {
+      l = 150 + Math.round(rnd() * 110); // 150–260 mm small
+      w = 150 + Math.round(rnd() * 110);
+    }
+    const h = 90 + Math.round(rnd() * 170);
     const density = 0.00000008 + rnd() * 0.00000025; // kg/mm^3 -> ~1.5–15 kg cartons
     const fragile = rnd() < 0.15;
     out.push({
