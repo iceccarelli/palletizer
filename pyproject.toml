@@ -43,6 +43,10 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4.0",
 ]
+edge = [
+    "asyncua>=1.1",
+    "pydantic>=2.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/iceccarelli/palletizer"
@@ -55,7 +59,7 @@ palletizer = "palletizer_full.run:main"
 palletize-optimize = "palletizer_full.optimizer:cli"
 
 [tool.setuptools.packages.find]
-include = ["palletizer_full*"]
+include = ["palletizer_full*", "core*", "gateway*"]
 
 [tool.ruff]
 target-version = "py311"

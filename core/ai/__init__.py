@@ -1,0 +1,1 @@
+"""Palletizer edge execution stack."""
