@@ -27,7 +27,7 @@ export function SectionHeader({
   subtitle?: React.ReactNode;
   align?: "center" | "left";
 }) {
-  const centered = align === "center";
+  const centered = align === "left";
   return (
     <div className={`${centered ? "text-center" : "text-left"} mb-12`}>
       <Eyebrow>{eyebrow}</Eyebrow>
