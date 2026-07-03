@@ -43,3 +43,4 @@ web/node_modules/
 web/.next/
 .vercel
 .env*
+data/

@@ -31,6 +31,8 @@ from typing import Callable, Optional
 from asyncua import Client, ua
 from pydantic import BaseModel, Field, ValidationError
 
+from core.runtime_paths import resolve_data_dir
+
 logger = logging.getLogger("palletizer.edge")
 
 ENDPOINT = os.getenv("PALLETIZER_OPCUA_ENDPOINT", "opc.tcp://127.0.0.1:4840/palletizer/")
@@ -40,7 +42,7 @@ CELL_OBJECT = "PalletizerCell_1"
 CONTROL_HZ = float(os.getenv("PALLETIZER_CONTROL_HZ", "100"))
 CONTROL_PERIOD_S = 1.0 / max(50.0, min(100.0, CONTROL_HZ))
 HEARTBEAT_TIMEOUT_S = float(os.getenv("PALLETIZER_HEARTBEAT_TIMEOUT_S", "2.5"))
-CACHE_DIR = Path(os.getenv("PALLETIZER_CACHE_DIR", "/data/pattern_cache"))
+CACHE_DIR: Path | None = None  # resolved lazily via core.runtime_paths
 
 STATUS_IDLE = 0
 STATUS_MOVING = 1
@@ -86,8 +88,10 @@ class PalletPattern(BaseModel):
 class PatternCache:
     """Disk-backed cache so an in-flight pallet survives a cloud outage."""
 
-    def __init__(self, cache_dir: Path = CACHE_DIR) -> None:
-        self.cache_dir = cache_dir
+    def __init__(self, cache_dir: Path | None = CACHE_DIR) -> None:
+        self.cache_dir = cache_dir or resolve_data_dir(
+            "PALLETIZER_CACHE_DIR", "pattern_cache"
+        )
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, pattern_id: str) -> Path:

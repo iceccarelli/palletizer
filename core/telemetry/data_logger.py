@@ -28,9 +28,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from core.runtime_paths import resolve_data_dir
+
 logger = logging.getLogger("palletizer.telemetry")
 
-QUEUE_DIR = Path(os.getenv("PALLETIZER_TELEMETRY_DIR", "/data/telemetry_queue"))
+QUEUE_DIR: Path | None = None  # resolved lazily via core.runtime_paths
 MAX_FILE_BYTES = int(os.getenv("PALLETIZER_TELEMETRY_MAX_BYTES", str(8 * 1024 * 1024)))
 MAX_QUEUE_DEPTH = int(os.getenv("PALLETIZER_TELEMETRY_QUEUE_DEPTH", "10000"))
 SCHEMA_VERSION = 1
@@ -64,12 +66,14 @@ class DataLogger:
     def __init__(
         self,
         cell_id: str,
-        queue_dir: Path = QUEUE_DIR,
+        queue_dir: Path | None = QUEUE_DIR,
         max_file_bytes: int = MAX_FILE_BYTES,
         max_queue_depth: int = MAX_QUEUE_DEPTH,
     ) -> None:
         self.cell_id = cell_id
-        self.queue_dir = queue_dir
+        self.queue_dir = queue_dir or resolve_data_dir(
+            "PALLETIZER_TELEMETRY_DIR", "telemetry_queue"
+        )
         self.max_file_bytes = max_file_bytes
         self.queue: asyncio.Queue[TelemetryRecord] = asyncio.Queue(maxsize=max_queue_depth)
         self._writer_task: Optional[asyncio.Task] = None
