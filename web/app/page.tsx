@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SectionHeader, Eyebrow, SectionTitle, Card } from "@/components/Section";
+import { SectionHeader, SectionShell, Eyebrow, SectionTitle, Card } from "@/components/Section";
 import { motion } from "framer-motion";
 import { 
   ArrowRight, Check, Play, Zap, Shield, TrendingUp, 
@@ -13,7 +13,7 @@ export default function PalletizerLanding() {
     <div className="min-h-screen bg-[#0f172a] text-white overflow-hidden">
       {/* HERO - Ruthless, high-conversion */}
       <section className="hero-bg min-h-[100dvh] flex items-center relative pt-20">
-        <div className="max-w-5xl mx-auto px-6 text-center">
+        <div className="max-w-7xl mx-auto px-6 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 text-xs tracking-[3px] mb-6 border border-white/20">
             v0.2 ENHANCED • OPEN CORE + ENTERPRISE
           </div>
@@ -55,7 +55,7 @@ export default function PalletizerLanding() {
 
       {/* TRUST BAR - Social Proof */}
       <div className="border-b border-white/10 py-5 bg-black/30">
-        <div className="max-w-6xl mx-auto px-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-3 text-sm text-white/60 font-medium tracking-wider">
+        <div className="max-w-7xl mx-auto px-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-3 text-xs uppercase tracking-[3px] text-white/50">
           <div>LEADING F&B MANUFACTURERS</div>
           <div>MAJOR 3PL & E-COMMERCE</div>
           <div>PHARMA & REGULATED INDUSTRIES</div>
@@ -64,7 +64,7 @@ export default function PalletizerLanding() {
       </div>
 
       {/* THE PROBLEM (Brutal) */}
-      <section className="section-padding max-w-5xl mx-auto px-6">
+      <SectionShell>
         <SectionHeader
           eyebrow={'The hidden cost of "good enough"'}
           title="Manual and basic automation is bleeding your margins."
@@ -83,11 +83,11 @@ export default function PalletizerLanding() {
             </Card>
           ))}
         </div>
-      </section>
+      </SectionShell>
 
       {/* THE SOLUTION - Our Hard Defensible Capability */}
       <section id="product" className="section-padding bg-[#020617] border-y border-white/10">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col lg:flex-row gap-12 items-center">
             <div className="flex-1">
               <Eyebrow>The one hard capability</Eyebrow>
@@ -128,7 +128,7 @@ export default function PalletizerLanding() {
       </section>
 
       {/* SOLUTIONS / INDUSTRIES with Unsplash style backgrounds */}
-      <section id="solutions" className="section-padding max-w-7xl mx-auto px-6">
+      <SectionShell id="solutions">
         <SectionHeader
           eyebrow="Built for the toughest environments"
           title="Solutions that win in every vertical"
@@ -152,14 +152,14 @@ export default function PalletizerLanding() {
             </div>
           ))}
         </div>
-      </section>
+      </SectionShell>
 
       {/* FINAL CTA - Ruthless */}
       <section className="section-padding bg-[#020617] border-t border-white/10">
-        <div className="max-w-3xl mx-auto px-6 text-center">
+        <div className="max-w-7xl mx-auto px-6 text-center">
           <Eyebrow>Get started</Eyebrow>
           <SectionTitle className="mb-6">Ready to turn palletizing into a profit center?</SectionTitle>
-          <p className="text-lg md:text-xl text-white/70 mb-10">
+          <p className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto">
             Run the live engine on your own SKU data — measured density, stability, and ROI before you ever talk to us.
           </p>
           

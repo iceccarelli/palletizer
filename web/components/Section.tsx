@@ -43,3 +43,23 @@ export function SectionHeader({
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`glass p-8 rounded-3xl border border-white/10 h-full ${className}`}>{children}</div>;
 }
+
+/**
+ * The one true section container. Content edges align with Navbar and Footer
+ * (max-w-7xl) on every section of every page — the AWS one-grid discipline.
+ */
+export function SectionShell({
+  id,
+  className = "",
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className={`section-padding ${className}`}>
+      <div className="max-w-7xl mx-auto px-6">{children}</div>
+    </section>
+  );
+}
