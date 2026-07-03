@@ -1,0 +1,1101 @@
+From 5add2f4195d007ff3beb021f856b82f3bf07aafc Mon Sep 17 00:00:00 2001
+From: dev <dev@palletizer>
+Date: Fri, 3 Jul 2026 12:03:14 +0000
+Subject: [PATCH] =?UTF-8?q?feat(web):=20Live=20Cell=20OS=20v2=20=E2=80=94?=
+ =?UTF-8?q?=20real=20operator=20gameplay=20with=20computed=20consequences?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Shift loop: setup -> 3-minute shift -> graded report card (S/A/B/C) with
+  localStorage best score
+- Order profiles (Beverage / High-Mix E-comm / Pharma-Glass) feed the REAL
+  optimizer; constraint toggles (heavy_low, fragile_high, max_height 1200/1500)
+  re-plan the next pattern live and can be re-queued mid-shift
+- Speed override 50/75/100/150% maps to URScript v-scaling; >100% triples
+  organic misfeed probability, scaled further by box fragility — the cell now
+  misbehaves on its own, sabotage deck kept for deterministic testing
+- Held-frame decision: below-gate frames pause motion and offer an operator
+  override with a real 30% rework risk (-15 pts) — teaching exactly why the
+  shipped engine never writes under 0.95 autonomously
+- Point economy (+5 placement, profile pallet bonus, +10 gate-passed
+  correction, -20 latched E-stop), live throughput/min, shift countdown
+- Fixes: telemetry timestamps now monotonic across pallets, footer card
+  layout, ProgressMeter hardcoded n/6 -> n/MISSIONS.length
+
+Verified: next build clean; node game-loop test — constraints honored by
+optimizer (620mm under 1200 cap), 10 organic slips/60s at 150% pharma,
+override rework path, mid-shift re-plan under cloud outage from cache
+---
+ web/components/demos/CellSimulator.tsx | 422 ++++++++++++++++++-------
+ web/components/demos/game.tsx          |   4 +-
+ web/lib/palletizer/cellsim.ts          | 336 ++++++++++++--------
+ 3 files changed, 512 insertions(+), 250 deletions(-)
+
+diff --git a/web/components/demos/CellSimulator.tsx b/web/components/demos/CellSimulator.tsx
+index 0c0d22b..fcb004c 100644
+--- a/web/components/demos/CellSimulator.tsx
++++ b/web/components/demos/CellSimulator.tsx
+@@ -1,51 +1,50 @@
+ "use client";
+ 
+-// Demo 7 — Live Cell OS: play the shipped edge stack.
+-// The four state cells below use the EXACT enum names from
+-// gateway/edge_orchestrator.py, and every transition, threshold, and
+-// confidence roll is computed by the same rules the Python cell runs.
++// Demo 7 — Live Cell OS v2: run a shift on the shipped edge stack.
++// Setup -> 3-minute shift -> report card. Every decision has a computed
++// consequence: speed override raises misfeed risk, constraint toggles
++// re-plan through the real optimizer, below-gate overrides risk rework.
+ 
+-import React, { useEffect, useRef, useState } from 'react';
+-import { CloudOff, Cloud, PackageX, HeartPulse, RotateCcw, ShieldCheck } from 'lucide-react';
++import React, { useCallback, useEffect, useRef, useState } from 'react';
++import {
++  CloudOff, Cloud, PackageX, HeartPulse, RotateCcw, ShieldCheck, Gauge,
++  Play, Trophy, ListChecks,
++} from 'lucide-react';
+ import { toast } from 'sonner';
+ import { MissionBanner, useMission } from './game';
+ import { Scene } from './shared';
+ import {
+-  CellSimState,
+-  createCellSim,
+-  tickCellSim,
+-  actionCutCloud,
+-  actionRestoreCloud,
+-  actionMisfeed,
+-  actionStallHeartbeat,
+-  actionResetFault,
+-  HEARTBEAT_TIMEOUT_S,
+-  VLM_CONFIDENCE_GATE,
+-  EdgeState,
++  CellSimState, ShiftSetup, OrderProfile, EdgeState,
++  createSetupState, tickCellSim,
++  actionStartShift, actionSetSpeed, actionQueueSetup,
++  actionCutCloud, actionRestoreCloud, actionMisfeed, actionStallHeartbeat,
++  actionResetFault, actionOperatorApprove,
++  HEARTBEAT_TIMEOUT_S, VLM_CONFIDENCE_GATE, SHIFT_LENGTH_S, SPEED_STEPS, PROFILES,
+ } from '@/lib/palletizer/cellsim';
+ 
+-const STATE_META: Record<EdgeState, { label: string; on: string; dot: string }> = {
+-  IDLE: { label: 'IDLE', on: 'border-emerald-400/60 bg-emerald-400/10 text-emerald-300', dot: 'bg-emerald-400' },
+-  MOVING: { label: 'MOVING', on: 'border-sky-400/60 bg-sky-400/10 text-sky-300', dot: 'bg-sky-400' },
+-  EXCEPTION_HANDLING: { label: 'EXCEPTION_HANDLING', on: 'border-amber-400/60 bg-amber-400/10 text-amber-300', dot: 'bg-amber-400' },
+-  FAULT_ESTOP: { label: 'FAULT_ESTOP', on: 'border-red-500/70 bg-red-500/10 text-red-300', dot: 'bg-red-500' },
++const BEST_KEY = 'palletizer_cell_best_v2';
++
++const STATE_META: Record<EdgeState, { on: string; dot: string }> = {
++  IDLE: { on: 'border-emerald-400/60 bg-emerald-400/10 text-emerald-300', dot: 'bg-emerald-400' },
++  MOVING: { on: 'border-sky-400/60 bg-sky-400/10 text-sky-300', dot: 'bg-sky-400' },
++  EXCEPTION_HANDLING: { on: 'border-amber-400/60 bg-amber-400/10 text-amber-300', dot: 'bg-amber-400' },
++  FAULT_ESTOP: { on: 'border-red-500/70 bg-red-500/10 text-red-300', dot: 'bg-red-500' },
+ };
+ 
+ function StateRibbon({ sim }: { sim: CellSimState }) {
++  const left = Math.max(0, SHIFT_LENGTH_S - sim.shiftElapsed);
++  const mm = Math.floor(left / 60);
++  const ss = Math.floor(left % 60).toString().padStart(2, '0');
+   return (
+     <div className="flex flex-wrap items-stretch gap-2">
+       {(Object.keys(STATE_META) as EdgeState[]).map((st) => {
+-        const meta = STATE_META[st];
+         const active = sim.state === st;
+         return (
+-          <div
+-            key={st}
++          <div key={st}
+             className={`flex items-center gap-2 px-3 py-2 rounded-xl border font-mono text-[11px] tracking-wider transition-all ${
+-              active ? meta.on : 'border-white/10 bg-white/[0.02] text-white/30'
+-            }`}
+-          >
+-            <span className={`w-2 h-2 rounded-full ${active ? `${meta.dot} animate-pulse` : 'bg-white/15'}`} />
+-            {meta.label}
++              active ? STATE_META[st].on : 'border-white/10 bg-white/[0.02] text-white/30'}`}>
++            <span className={`w-2 h-2 rounded-full ${active ? `${STATE_META[st].dot} animate-pulse` : 'bg-white/15'}`} />
++            {st}
+           </div>
+         );
+       })}
+@@ -56,27 +55,29 @@ function StateRibbon({ sim }: { sim: CellSimState }) {
+         </span>
+         <span className="flex items-center gap-1.5">
+           {sim.cloudConnected ? <Cloud className="w-3.5 h-3.5 text-sky-400" /> : <CloudOff className="w-3.5 h-3.5 text-amber-400" />}
+-          {sim.cloudConnected ? 'CLOUD LINKED' : 'CACHE AUTONOMY'}
++          {sim.cloudConnected ? 'CLOUD' : 'CACHE'}
+         </span>
+-        <span>UPTIME {sim.score.uptimePct.toFixed(1)}%</span>
++        <span>UP {sim.score.uptimePct.toFixed(1)}%</span>
++        <span className="text-white font-semibold">{mm}:{ss}</span>
+       </div>
+     </div>
+   );
+ }
+ 
+-function VlmConsole({ sim }: { sim: CellSimState }) {
++function Telemetry({ sim }: { sim: CellSimState }) {
+   const endRef = useRef<HTMLDivElement>(null);
+-  useEffect(() => {
+-    endRef.current?.scrollIntoView({ block: 'nearest' });
+-  }, [sim.events.length]);
++  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [sim.events.length]);
+   const color = (k: string) =>
+-    k === 'vlm_pass' ? 'text-emerald-400' : k === 'vlm_reject' ? 'text-amber-400' : k === 'fault' ? 'text-red-400' : k === 'autonomy' ? 'text-sky-300' : k === 'pallet' ? 'text-violet-300' : 'text-white/50';
++    k === 'vlm_pass' ? 'text-emerald-400' : k === 'vlm_reject' ? 'text-amber-400'
++    : k === 'fault' ? 'text-red-400' : k === 'rework' ? 'text-red-300'
++    : k === 'autonomy' ? 'text-sky-300' : k === 'pallet' ? 'text-violet-300'
++    : k === 'exception' ? 'text-amber-300' : k === 'operator' ? 'text-white/80' : 'text-white/50';
+   return (
+     <div className="glass rounded-2xl border border-white/10 p-3">
+       <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-2">
+         CELL TELEMETRY • VLM GATE &gt; {VLM_CONFIDENCE_GATE} • WATCHDOG {HEARTBEAT_TIMEOUT_S}s
+       </div>
+-      <div className="h-44 overflow-y-auto space-y-1 font-mono text-[10.5px] leading-relaxed pr-1">
++      <div className="h-40 overflow-y-auto space-y-1 font-mono text-[10.5px] leading-relaxed pr-1">
+         {sim.events.map((e, i) => (
+           <div key={i} className={color(e.kind)}>
+             <span className="text-white/25">[{e.t.toFixed(1)}s]</span> {e.text}
+@@ -88,40 +89,156 @@ function VlmConsole({ sim }: { sim: CellSimState }) {
+   );
+ }
+ 
+-function Scoreboard({ sim }: { sim: CellSimState }) {
++function ConstraintToggles({ value, onChange }: { value: ShiftSetup['constraints']; onChange: (c: ShiftSetup['constraints']) => void }) {
++  const items = [
++    { key: 'heavy_low', label: 'Heavy below', desc: 'Pack heaviest cases on the bottom layers' },
++    { key: 'fragile_high', label: 'Fragile on top', desc: 'Glass and vials only on the top-most layers' },
++  ] as const;
++  return (
++    <div className="space-y-2">
++      {items.map((it) => (
++        <button key={it.key}
++          onClick={() => onChange({ ...value, [it.key]: !value[it.key] || undefined })}
++          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-left text-sm transition ${
++            value[it.key] ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/15 hover:bg-white/5'}`}>
++          <span>
++            <span className="font-medium">{it.label}</span>
++            <span className="block text-[11px] text-white/40">{it.desc}</span>
++          </span>
++          <span className={`text-xs font-mono ${value[it.key] ? 'text-emerald-300' : 'text-white/30'}`}>{value[it.key] ? 'ON' : 'OFF'}</span>
++        </button>
++      ))}
++      <div className="flex items-center justify-between px-3 py-2 rounded-xl border border-white/15 text-sm">
++        <span>
++          <span className="font-medium">Height limit</span>
++          <span className="block text-[11px] text-white/40">Truck / racking clearance</span>
++        </span>
++        <div className="flex gap-1">
++          {[undefined, 1200, 1500].map((h) => (
++            <button key={String(h)}
++              onClick={() => onChange({ ...value, max_height_mm: h })}
++              className={`px-2 py-1 rounded-lg text-[11px] font-mono border transition ${
++                value.max_height_mm === h ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-300' : 'border-white/15 text-white/40 hover:bg-white/5'}`}>
++              {h ? `${h}` : 'OFF'}
++            </button>
++          ))}
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function ProfilePicker({ value, onChange }: { value: OrderProfile; onChange: (p: OrderProfile) => void }) {
++  return (
++    <div className="grid grid-cols-1 gap-2">
++      {(Object.keys(PROFILES) as OrderProfile[]).map((p) => (
++        <button key={p} onClick={() => onChange(p)}
++          className={`px-3 py-2.5 rounded-xl border text-left text-sm transition ${
++            value === p ? 'border-sky-400/60 bg-sky-400/10' : 'border-white/15 hover:bg-white/5'}`}>
++          <span className="font-medium flex items-center justify-between">
++            {PROFILES[p].label}
++            <span className="text-[10px] font-mono text-white/40">+{PROFILES[p].palletBonus} pts/pallet</span>
++          </span>
++          <span className="block text-[11px] text-white/40">{PROFILES[p].desc}</span>
++        </button>
++      ))}
++    </div>
++  );
++}
++
++function SetupScreen({ onStart, best }: { onStart: (s: ShiftSetup) => void; best: number }) {
++  const [profile, setProfile] = useState<OrderProfile>('beverage');
++  const [constraints, setConstraints] = useState<ShiftSetup['constraints']>({});
++  return (
++    <div className="glass rounded-3xl border border-white/10 p-6 md:p-10 grid md:grid-cols-2 gap-8">
++      <div>
++        <div className="text-xs tracking-[3px] text-primary mb-3 font-mono">SHIFT SETUP</div>
++        <h3 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">Run a {SHIFT_LENGTH_S / 60}-minute shift on a live cell</h3>
++        <p className="text-white/60 text-sm leading-relaxed mb-4">
++          Pick the order mix, set your packing constraints, then operate: speed override, misfeed recovery,
++          cloud outages, e-stops. Every mechanic is the shipped edge stack — the state machine, the {HEARTBEAT_TIMEOUT_S}s
++          watchdog, and the &gt;{VLM_CONFIDENCE_GATE} confidence gate are real, and the pallet patterns come from the
++          real optimizer with your constraints applied.
++        </p>
++        <div className="text-[12px] text-white/50 space-y-1.5 mb-6">
++          <div className="flex items-center gap-2"><ListChecks className="w-3.5 h-3.5 text-emerald-400" /> +5/placement, pallet bonus by difficulty, +10 gate-passed correction</div>
++          <div className="flex items-center gap-2"><ListChecks className="w-3.5 h-3.5 text-amber-400" /> Overrides below the gate risk −15 rework • latched E-stop −20</div>
++          {best > 0 && <div className="flex items-center gap-2"><Trophy className="w-3.5 h-3.5 text-yellow-400" /> Your best shift: {best} pts</div>}
++        </div>
++        <button onClick={() => onStart({ profile, constraints })}
++          className="group inline-flex items-center gap-3 px-8 py-4 bg-white text-black text-lg font-semibold rounded-3xl hover:bg-white/90 transition-all">
++          Start shift <Play className="w-5 h-5 group-hover:translate-x-0.5 transition" />
++        </button>
++      </div>
++      <div className="space-y-5">
++        <div>
++          <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-2">ORDER PROFILE</div>
++          <ProfilePicker value={profile} onChange={setProfile} />
++        </div>
++        <div>
++          <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-2">OPTIMIZER CONSTRAINTS (REAL RE-PLAN)</div>
++          <ConstraintToggles value={constraints} onChange={setConstraints} />
++        </div>
++      </div>
++    </div>
++  );
++}
++
++function ReportCard({ sim, best, onAgain, onSetup }: { sim: CellSimState; best: number; onAgain: () => void; onSetup: () => void }) {
++  const s = sim.score;
++  const gradeColor = sim.grade === 'S' ? 'text-yellow-300' : sim.grade === 'A' ? 'text-emerald-300' : sim.grade === 'B' ? 'text-sky-300' : 'text-white/60';
+   const rows = [
+-    { k: 'Pallets shipped', v: sim.score.palletsCompleted },
+-    { k: 'Placements executed', v: sim.score.placementsDone },
+-    { k: 'VLM corrections applied', v: sim.score.vlmApplied },
+-    { k: 'Low-confidence frames held', v: sim.score.vlmEscalated },
+-    { k: 'Placements while cloud down', v: sim.score.autonomyPlacements },
+-    { k: 'E-stops recovered', v: sim.score.faultsRecovered },
+-  ];
++    ['Points', s.points], ['Pallets shipped', s.palletsCompleted], ['Throughput', `${s.throughputPerMin}/min`],
++    ['Uptime', `${s.uptimePct}%`], ['Gate-passed corrections', s.vlmApplied], ['Operator overrides', s.operatorOverrides],
++    ['Reworks caused', s.reworks], ['Cache-autonomy placements', s.autonomyPlacements], ['E-stops recovered', s.faultsRecovered],
++  ] as const;
+   return (
+-    <div className="glass rounded-2xl border border-white/10 p-4">
+-      <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-3">SHIFT SCORE</div>
+-      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+-        {rows.map((r) => (
+-          <div key={r.k} className="flex items-baseline justify-between gap-2 text-sm">
+-            <span className="text-white/50 text-xs">{r.k}</span>
+-            <span className="font-mono font-semibold">{r.v}</span>
++    <div className="glass rounded-3xl border border-white/10 p-6 md:p-10">
++      <div className="flex flex-wrap items-end justify-between gap-6 mb-6">
++        <div>
++          <div className="text-xs tracking-[3px] text-primary mb-2 font-mono">SHIFT REPORT</div>
++          <div className="flex items-baseline gap-4">
++            <span className={`text-7xl font-semibold ${gradeColor}`}>{sim.grade}</span>
++            <span className="text-3xl font-mono">{s.points} pts</span>
++            {s.points >= best && best > 0 && <span className="text-yellow-300 text-sm font-mono flex items-center gap-1"><Trophy className="w-4 h-4" /> NEW BEST</span>}
++          </div>
++        </div>
++        <div className="flex gap-3">
++          <button onClick={onAgain} className="px-6 py-3 bg-white text-black font-semibold rounded-2xl hover:bg-white/90 transition">Run it again</button>
++          <button onClick={onSetup} className="px-6 py-3 border border-white/25 rounded-2xl hover:bg-white/5 transition">Change setup</button>
++        </div>
++      </div>
++      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3">
++        {rows.map(([k, v]) => (
++          <div key={k} className="flex items-baseline justify-between gap-3 border-b border-white/5 pb-2 text-sm">
++            <span className="text-white/50 text-xs">{k}</span>
++            <span className="font-mono font-semibold">{v}</span>
+           </div>
+         ))}
+       </div>
++      {s.reworks > 0 && (
++        <div className="mt-5 text-[12px] text-amber-300/80">
++          {s.reworks} rework{s.reworks > 1 ? 's' : ''} came from overriding below the confidence gate — the same reason
++          the shipped engine never writes a correction under {VLM_CONFIDENCE_GATE} autonomously.
++        </div>
++      )}
+     </div>
+   );
+ }
+ 
+ export default function CellSimulator() {
+   const seedRef = useRef({ seed: 1 });
+-  const [sim, setSim] = useState<CellSimState>(() => createCellSim(1));
++  const [sim, setSim] = useState<CellSimState>(() => createSetupState());
++  const [best, setBest] = useState(0);
+   const mission = useMission('cell');
+   const missionDone = useRef(false);
+-  const cloudSurvived = useRef(false);
++  const bestSaved = useRef(false);
+   const raf = useRef<number>();
+ 
+-  // The control loop — requestAnimationFrame drives the same tick semantics
+-  // the Python orchestrator runs at 100 Hz.
++  useEffect(() => {
++    try { setBest(Number(localStorage.getItem(BEST_KEY) || 0)); } catch { /* ssr/private mode */ }
++  }, []);
++
+   useEffect(() => {
+     let last = performance.now();
+     const loop = (now: number) => {
+@@ -131,32 +248,57 @@ export default function CellSimulator() {
+       raf.current = requestAnimationFrame(loop);
+     };
+     raf.current = requestAnimationFrame(loop);
+-    return () => {
+-      if (raf.current) cancelAnimationFrame(raf.current);
+-    };
++    return () => { if (raf.current) cancelAnimationFrame(raf.current); };
+   }, []);
+ 
+   // Mission: Fault Marshal — verified purely from real sim state.
+   useEffect(() => {
+-    if (sim.score.autonomyPlacements > 0) cloudSurvived.current = true;
+-    if (
+-      !missionDone.current &&
+-      cloudSurvived.current &&
+-      sim.score.vlmApplied >= 1 &&
+-      sim.score.faultsRecovered >= 1 &&
+-      sim.score.palletsCompleted >= 1
+-    ) {
++    const sc = sim.score;
++    if (!missionDone.current && sc.autonomyPlacements > 0 && sc.vlmApplied >= 1 && sc.faultsRecovered >= 1 && sc.palletsCompleted >= 1) {
+       missionDone.current = true;
+       mission.complete();
+     }
+-  }, [sim, mission]);
++    if (sim.phase === 'report' && !bestSaved.current) {
++      bestSaved.current = true;
++      if (sc.points > best) {
++        setBest(sc.points);
++        try { localStorage.setItem(BEST_KEY, String(sc.points)); } catch { /* ignore */ }
++      }
++    }
++    if (sim.phase !== 'report') bestSaved.current = false;
++  }, [sim, mission, best]);
++
++  const start = useCallback((setup: ShiftSetup) => {
++    seedRef.current.seed += 1;
++    setSim((s) => actionStartShift(s, setup));
++  }, []);
+ 
+   const act = (fn: (s: CellSimState) => CellSimState, note?: string) => {
+     setSim((s) => fn(s));
+     if (note) toast(note);
+   };
+ 
++  if (sim.phase === 'setup') {
++    return (
++      <div className="space-y-4">
++        <MissionBanner demo="cell" />
++        <SetupScreen onStart={start} best={best} />
++      </div>
++    );
++  }
++
++  if (sim.phase === 'report') {
++    return (
++      <div className="space-y-4">
++        <MissionBanner demo="cell" />
++        <ReportCard sim={sim} best={best} onAgain={() => start(sim.setup)} onSetup={() => setSim(createSetupState())} />
++        <Telemetry sim={sim} />
++      </div>
++    );
++  }
++
+   const inFault = sim.state === 'FAULT_ESTOP';
++  const held = sim.state === 'EXCEPTION_HANDLING' && sim.heldFrame;
+ 
+   return (
+     <div className="space-y-4">
+@@ -164,93 +306,129 @@ export default function CellSimulator() {
+       <StateRibbon sim={sim} />
+ 
+       <div className="grid lg:grid-cols-12 gap-4">
+-        <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden relative">
+-          <Scene
+-            boxes={sim.plan.boxes}
+-            interactive={false}
+-            robot={{ activeIndex: sim.activeIndex, progress: sim.progress, placedCount: sim.placedCount }}
+-            heightClass="h-[520px]"
+-            paletteTag={sim.plan.plan_id}
+-          />
+-          {inFault && (
+-            <div className="absolute inset-0 bg-red-950/40 backdrop-blur-[2px] flex items-center justify-center">
+-              <div className="text-center">
+-                <div className="text-red-300 font-mono tracking-[4px] text-sm mb-3">FAULT_ESTOP LATCHED</div>
+-                <button
+-                  onClick={() => act(actionResetFault, 'Fault reset — cell resumes exactly where it stopped')}
+-                  className="px-6 py-3 bg-red-500 hover:bg-red-400 text-white font-semibold rounded-2xl inline-flex items-center gap-2 transition"
+-                >
+-                  <RotateCcw className="w-4 h-4" /> Operator reset
++        <div className="lg:col-span-8 space-y-4">
++          <div className="glass rounded-3xl border border-white/10 overflow-hidden relative">
++            <Scene
++              boxes={sim.plan.boxes}
++              interactive={false}
++              robot={{ activeIndex: sim.activeIndex, progress: sim.progress, placedCount: sim.placedCount }}
++              heightClass="h-[440px]"
++              paletteTag={sim.plan.plan_id}
++            />
++            {inFault && (
++              <div className="absolute inset-0 bg-red-950/40 backdrop-blur-[2px] flex items-center justify-center">
++                <div className="text-center">
++                  <div className="text-red-300 font-mono tracking-[4px] text-sm mb-3">FAULT_ESTOP LATCHED</div>
++                  <button onClick={() => act(actionResetFault, 'Fault reset — cell resumes exactly where it stopped')}
++                    className="px-6 py-3 bg-red-500 hover:bg-red-400 text-white font-semibold rounded-2xl inline-flex items-center gap-2 transition">
++                    <RotateCcw className="w-4 h-4" /> Operator reset
++                  </button>
++                </div>
++              </div>
++            )}
++            {sim.state === 'EXCEPTION_HANDLING' && (
++              <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-xs font-mono tracking-wider">
++                CELL HOLDING SAFE POSE — VLM ANALYZING FRAMES
++              </div>
++            )}
++            {held && (
++              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 glass border border-amber-400/40 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
++                <span className="font-mono text-amber-300 text-xs">
++                  HELD frame-{sim.heldFrame!.frame}: conf {sim.heldFrame!.confidence.toFixed(4)} ≤ {VLM_CONFIDENCE_GATE}
++                </span>
++                <button onClick={() => setSim((s) => actionOperatorApprove(s, seedRef.current))}
++                  className="px-3 py-1.5 bg-amber-400 text-black text-xs font-semibold rounded-lg hover:bg-amber-300 transition">
++                  Override &amp; apply (your risk)
+                 </button>
++                <span className="text-white/40 text-[11px]">or wait for a frame above the gate</span>
+               </div>
++            )}
++          </div>
++
++          {/* Speed override — the operator's main lever */}
++          <div className="glass rounded-2xl border border-white/10 p-4 flex flex-wrap items-center gap-4">
++            <span className="flex items-center gap-2 text-[10px] tracking-[2px] text-white/40 font-mono">
++              <Gauge className="w-4 h-4" /> SPEED OVERRIDE
++            </span>
++            <div className="flex gap-1.5">
++              {SPEED_STEPS.map((v) => (
++                <button key={v} onClick={() => act((s) => actionSetSpeed(s, v))}
++                  className={`px-4 py-2 rounded-xl border font-mono text-xs transition ${
++                    sim.speedOverride === v
++                      ? v > 1 ? 'border-amber-400/60 bg-amber-400/10 text-amber-300' : 'border-sky-400/60 bg-sky-400/10 text-sky-300'
++                      : 'border-white/15 text-white/40 hover:bg-white/5'}`}>
++                  {Math.round(v * 100)}%
++                </button>
++              ))}
+             </div>
+-          )}
+-          {sim.state === 'EXCEPTION_HANDLING' && (
+-            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-xs font-mono tracking-wider">
+-              CELL HOLDING SAFE POSE — VLM ANALYZING FRAMES
+-            </div>
+-          )}
++            <span className="text-[11px] text-white/40">
++              {sim.speedOverride > 1 ? 'Faster cycle, 3× misfeed risk — your call, operator.' : sim.speedOverride < 1 ? 'Slow and safe — throughput pays for it.' : 'Nominal cycle, nominal risk.'}
++            </span>
++            <span className="ml-auto font-mono text-sm">
++              <span className="text-white/40 text-[10px] mr-2">THROUGHPUT</span>{sim.score.throughputPerMin}/min
++              <span className="text-white/40 text-[10px] mx-2 ml-4">POINTS</span><span className="font-semibold">{sim.score.points}</span>
++            </span>
++          </div>
+         </div>
+ 
+         <div className="lg:col-span-4 space-y-4">
+           <div className="glass rounded-2xl border border-white/10 p-4">
+             <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-3">SABOTAGE DECK — TRY TO STOP IT</div>
+             <div className="grid grid-cols-1 gap-2">
+-              <button
+-                onClick={() =>
+-                  sim.cloudConnected
+-                    ? act(actionCutCloud, 'Cloud severed. Watch the cell keep placing from cache.')
+-                    : act(actionRestoreCloud)
+-                }
+-                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left"
+-              >
++              <button onClick={() => sim.cloudConnected ? act(actionCutCloud, 'Cloud severed. Watch the cell keep placing from cache.') : act(actionRestoreCloud)}
++                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left">
+                 {sim.cloudConnected ? <CloudOff className="w-4 h-4 text-amber-400 shrink-0" /> : <Cloud className="w-4 h-4 text-sky-400 shrink-0" />}
+                 <span>
+                   <span className="font-medium">{sim.cloudConnected ? 'Cut the cloud link' : 'Restore the cloud link'}</span>
+                   <span className="block text-[11px] text-white/40">
+-                    {sim.cloudConnected ? 'The active pallet must finish from local cache' : 'Pattern sync resumes for future pallets'}
++                    {sim.cloudConnected ? 'Patterns keep flowing from local cache' : 'Pattern sync resumes'}
+                   </span>
+                 </span>
+               </button>
+-
+-              <button
+-                onClick={() => act(actionMisfeed)}
+-                disabled={sim.state !== 'MOVING'}
+-                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left disabled:opacity-35 disabled:cursor-not-allowed"
+-              >
++              <button onClick={() => act(actionMisfeed)} disabled={sim.state !== 'MOVING'}
++                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left disabled:opacity-35 disabled:cursor-not-allowed">
+                 <PackageX className="w-4 h-4 text-amber-400 shrink-0" />
+                 <span>
+                   <span className="font-medium">Misfeed a box</span>
+-                  <span className="block text-[11px] text-white/40">Skew the active pick — only a &gt;{VLM_CONFIDENCE_GATE} confidence frame may resume it</span>
++                  <span className="block text-[11px] text-white/40">Force an exception — the cell already slips on its own at high speed</span>
+                 </span>
+               </button>
+-
+-              <button
+-                onClick={() => act(actionStallHeartbeat)}
+-                disabled={sim.heartbeatStalled || inFault}
+-                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left disabled:opacity-35 disabled:cursor-not-allowed"
+-              >
++              <button onClick={() => act(actionStallHeartbeat)} disabled={sim.heartbeatStalled || inFault}
++                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/15 hover:bg-white/5 text-sm transition text-left disabled:opacity-35 disabled:cursor-not-allowed">
+                 <HeartPulse className="w-4 h-4 text-red-400 shrink-0" />
+                 <span>
+                   <span className="font-medium">Freeze the PLC heartbeat</span>
+-                  <span className="block text-[11px] text-white/40">The watchdog latches FAULT_ESTOP in {HEARTBEAT_TIMEOUT_S}s — nothing moves blind</span>
++                  <span className="block text-[11px] text-white/40">Watchdog latches FAULT_ESTOP in {HEARTBEAT_TIMEOUT_S}s — nothing moves blind</span>
+                 </span>
+               </button>
+             </div>
+           </div>
+ 
+-          <Scoreboard sim={sim} />
++          <div className="glass rounded-2xl border border-white/10 p-4">
++            <div className="text-[10px] tracking-[2px] text-white/40 font-mono mb-3">
++              NEXT PATTERN {sim.setupQueued && <span className="text-emerald-300">• RE-PLAN QUEUED</span>}
++            </div>
++            <ProfilePicker value={sim.queuedSetup.profile}
++              onChange={(p) => act((s) => actionQueueSetup(s, { ...s.queuedSetup, profile: p }))} />
++            <div className="mt-3">
++              <ConstraintToggles value={sim.queuedSetup.constraints}
++                onChange={(c) => act((s) => actionQueueSetup(s, { ...s.queuedSetup, constraints: c }))} />
++            </div>
++            <div className="mt-2 text-[11px] text-white/35">Applied when the next pattern arms — the real optimizer re-plans with these constraints.</div>
++          </div>
+ 
+-          <div className="glass rounded-2xl border border-white/10 p-4 flex items-start gap-3 text-[12px] text-white/60 leading-relaxed">
+-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+-            This page runs the browser mirror of the shipped edge stack — same state machine, same {HEARTBEAT_TIMEOUT_S}s
+-            watchdog, same &gt;{VLM_CONFIDENCE_GATE} VLM gate as{' '}
+-            <code className="text-white/80">gateway/edge_orchestrator.py</code>. On hardware it speaks OPC UA and URScript.
++          <div className="glass rounded-2xl border border-white/10 p-4 text-[12px] text-white/60 leading-relaxed">
++            <div className="flex items-center gap-2 mb-2">
++              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
++              <span className="text-white/40 font-mono text-[10px] tracking-[2px]">SAME STACK AS THE HARDWARE</span>
++            </div>
++            Browser mirror of <code className="text-white/80">gateway/edge_orchestrator.py</code> — identical state machine,
++            {' '}{HEARTBEAT_TIMEOUT_S}s watchdog, and &gt;{VLM_CONFIDENCE_GATE} VLM gate. On hardware it speaks OPC UA and streams URScript.
+           </div>
+         </div>
+       </div>
+ 
+-      <VlmConsole sim={sim} />
++      <Telemetry sim={sim} />
+     </div>
+   );
+ }
+diff --git a/web/components/demos/game.tsx b/web/components/demos/game.tsx
+index 10616d5..c368f55 100644
+--- a/web/components/demos/game.tsx
++++ b/web/components/demos/game.tsx
+@@ -173,7 +173,7 @@ export function ScoreDuel({
+   );
+ }
+ 
+-/** Header progress: mastered n/6 with per-mission pips. */
++/** Header progress: mastered n/total with per-mission pips. */
+ const EMPTY_COMPLETED: Record<string, number> = {};
+ 
+ export function ProgressMeter({ onNavigate }: { onNavigate?: (demo: string) => void }) {
+@@ -206,7 +206,7 @@ export function ProgressMeter({ onNavigate }: { onNavigate?: (demo: string) => v
+         })}
+       </div>
+       <div className="text-xs text-white/60">
+-        <span className="font-mono text-white">{n}/6</span> missions
++        <span className="font-mono text-white">{n}/{MISSIONS.length}</span> missions
+         {engineBeaten && <span className="ml-2 text-rose-400 font-semibold tracking-wider">⚔ ENGINE BEATEN</span>}
+         {n === 6 && <span className="ml-2 text-amber-300 font-semibold tracking-wider">★ SUITE MASTERED</span>}
+       </div>
+diff --git a/web/lib/palletizer/cellsim.ts b/web/lib/palletizer/cellsim.ts
+index d2da3e7..7d841fa 100644
+--- a/web/lib/palletizer/cellsim.ts
++++ b/web/lib/palletizer/cellsim.ts
+@@ -1,63 +1,93 @@
+-// Live Cell OS simulation — a faithful browser mirror of the shipped edge stack:
+-//   gateway/edge_orchestrator.py  -> state machine, heartbeat watchdog, cache autonomy
++// Live Cell OS simulation v2 — a faithful, PLAYABLE browser mirror of the
++// shipped edge stack:
++//   gateway/edge_orchestrator.py   -> state machine, heartbeat watchdog, cache autonomy
+ //   core/ai/vlm_exception_engine.py -> 0.4s inference rolls, confidence gate > 0.95
+-// Same state names, same thresholds, same recovery semantics. No canned outcomes:
+-// every transition below is computed from the same rules the Python cell runs.
++//   core/connectors/ur_bridge.py    -> speed override maps to URScript v-scaling
++// Same state names, same thresholds, same recovery semantics — plus real operator
++// decisions with real consequences: speed override raises misfeed risk, constraint
++// toggles re-plan the next pattern through the real optimizer, and below-gate
++// operator overrides carry a rework risk the gate exists to prevent.
+ 
+-import { BoxSpec, Placement, WebPlan } from './types';
++import { BoxSpec, OptimizeConstraints, WebPlan } from './types';
+ import { planFromBoxes } from './optimizer';
++import { BEVERAGE_ORDER, PHARMA_SKUS, ecommChaosSkus } from './sampleData';
+ 
+ export type EdgeState = 'IDLE' | 'MOVING' | 'EXCEPTION_HANDLING' | 'FAULT_ESTOP';
++export type OrderProfile = 'beverage' | 'ecomm' | 'pharma';
+ 
+ // Constants mirrored 1:1 from the Python edge stack.
+ export const HEARTBEAT_INTERVAL_S = 0.5;
+ export const HEARTBEAT_TIMEOUT_S = 2.5;
+ export const VLM_INFERENCE_S = 0.4;
+ export const VLM_CONFIDENCE_GATE = 0.95;
+-export const MAX_CORRECTION_MM = 50;
++export const SHIFT_LENGTH_S = 180;
++
++export const SPEED_STEPS = [0.5, 0.75, 1.0, 1.5] as const;
++const BASE_PLACEMENT_SPEED = 0.55; // progress/s at 100% override
++
++export const PROFILES: Record<OrderProfile, { label: string; desc: string; palletBonus: number }> = {
++  beverage: { label: 'Beverage FMCG', desc: 'Heavy uniform cases — forgiving, fast', palletBonus: 40 },
++  ecomm: { label: 'High-Mix E-comm', desc: '~15% fragile chaos cartons — moderate risk', palletBonus: 55 },
++  pharma: { label: 'Pharma / Glass', desc: 'Vials and fragile loads — high stakes', palletBonus: 75 },
++};
+ 
+ export interface CellEvent {
+-  t: number; // sim seconds
+-  kind: 'info' | 'vlm_pass' | 'vlm_reject' | 'fault' | 'autonomy' | 'pallet';
++  t: number;
++  kind: 'info' | 'vlm_pass' | 'vlm_reject' | 'fault' | 'autonomy' | 'pallet' | 'exception' | 'rework' | 'operator';
+   text: string;
+ }
+ 
+ export interface CellScore {
++  points: number;
+   palletsCompleted: number;
+   placementsDone: number;
+   vlmApplied: number;
+   vlmEscalated: number;
+-  autonomyPlacements: number; // placements finished while cloud link was down
++  operatorOverrides: number;
++  reworks: number;
++  autonomyPlacements: number;
+   faultsRecovered: number;
+   uptimePct: number;
++  throughputPerMin: number;
++}
++
++export interface ShiftSetup {
++  profile: OrderProfile;
++  constraints: { max_height_mm?: number; heavy_low?: boolean; fragile_high?: boolean };
+ }
+ 
+ export interface CellSimState {
++  phase: 'setup' | 'running' | 'report';
+   state: EdgeState;
+   plan: WebPlan;
+-  activeIndex: number; // -1 = none
+-  progress: number; // 0..1 of active placement
++  setup: ShiftSetup;
++  queuedSetup: ShiftSetup; // takes effect at the next pattern arm
++  setupQueued: boolean;
++  speedOverride: number;
++  activeIndex: number;
++  progress: number;
+   placedCount: number;
+   heartbeat: number;
+   heartbeatStalled: boolean;
+   cloudConnected: boolean;
+-  cacheArmed: boolean; // active pattern is safe in the local cache
+-  vlmRollTimer: number; // seconds until next inference result
+-  lastVlm: { confidence: number; dx: number; dy: number } | null;
++  vlmRollTimer: number;
++  heldFrame: { confidence: number; dx: number; dy: number; frame: number } | null;
++  organicRolled: boolean; // one organic-misfeed roll per placement
+   events: CellEvent[];
+   score: CellScore;
++  shiftElapsed: number;
++  grade: 'S' | 'A' | 'B' | 'C' | null;
+   // internal clocks
+   simTime: number;
+   hbAccum: number;
+   hbLastChange: number;
+-  faultTime: number; // time spent latched
+-  palletDwell: number; // pause between pallets
+-  cloudCutDuringRun: boolean;
++  faultTime: number;
++  faultPenalized: boolean;
++  palletDwell: number;
+   frameCounter: number;
++  palletSeq: number;
+ }
+ 
+-// Deterministic PRNG (mulberry32) — same spirit as the Python engine hashing
+-// frame ids: repeatable rolls, no invented numbers.
+ export function mulberry32(seed: number) {
+   let a = seed >>> 0;
+   return () => {
+@@ -69,77 +99,80 @@ export function mulberry32(seed: number) {
+   };
+ }
+ 
+-const PLACEMENT_SPEED = 0.55; // progress units / sec, matches DemoRobot pacing
+-
+-function cellSkus(seed: number): BoxSpec[] {
+-  // Compact mixed-SKU order: quick pallet cycles keep the game tight.
+-  const rand = mulberry32(seed * 7919 + 13);
+-  const base: BoxSpec[] = [];
+-  const families = [
+-    { l: 380, w: 280, h: 220, kg: 9 },
+-    { l: 300, w: 300, h: 180, kg: 7 },
+-    { l: 420, w: 320, h: 260, kg: 12 },
+-    { l: 260, w: 200, h: 160, kg: 4 },
+-  ];
+-  for (let i = 0; i < 12; i++) {
+-    const f = families[Math.floor(rand() * families.length)];
+-    base.push({
+-      sku_id: `CELL-${seed}-${i}`,
+-      length_mm: f.l + Math.round(rand() * 40 - 20),
+-      width_mm: f.w + Math.round(rand() * 40 - 20),
+-      height_mm: f.h + Math.round(rand() * 30 - 15),
+-      weight_kg: Math.round((f.kg + rand() * 3) * 10) / 10,
+-      fragility: rand() < 0.2 ? 0.8 : 0,
+-    });
++function profileSkus(profile: OrderProfile, seq: number): BoxSpec[] {
++  if (profile === 'beverage') {
++    const rot = (seq * 5) % Math.max(1, BEVERAGE_ORDER.length - 14);
++    return BEVERAGE_ORDER.slice(rot, rot + 14);
+   }
+-  return base;
++  if (profile === 'ecomm') return ecommChaosSkus(14, 42 + seq);
++  return [...PHARMA_SKUS, ...PHARMA_SKUS.slice(0, 4)].map((s, i) => ({ ...s, sku_id: `${s.sku_id}-${seq}-${i}` })).slice(0, 13);
++}
++
++function buildPlan(setup: ShiftSetup, seq: number): WebPlan {
++  const constraints: OptimizeConstraints = {
++    ...(setup.constraints.max_height_mm ? { max_height_mm: setup.constraints.max_height_mm } : {}),
++    ...(setup.constraints.heavy_low ? { heavy_low: true } : {}),
++    ...(setup.constraints.fragile_high ? { fragile_high: true } : {}),
++  };
++  return planFromBoxes(profileSkus(setup.profile, seq), constraints, undefined, `plan_${setup.profile}_${seq}`);
++}
++
++function freshScore(): CellScore {
++  return {
++    points: 0, palletsCompleted: 0, placementsDone: 0, vlmApplied: 0, vlmEscalated: 0,
++    operatorOverrides: 0, reworks: 0, autonomyPlacements: 0, faultsRecovered: 0,
++    uptimePct: 100, throughputPerMin: 0,
++  };
+ }
+ 
+-export function createCellSim(seed = 1): CellSimState {
+-  const plan = planFromBoxes(cellSkus(seed), {}, undefined, `plan_cell_${seed}`);
++export function createSetupState(): CellSimState {
++  const setup: ShiftSetup = { profile: 'beverage', constraints: {} };
+   return {
+-    state: 'IDLE',
+-    plan,
+-    activeIndex: -1,
+-    progress: 0,
+-    placedCount: 0,
+-    heartbeat: 0,
+-    heartbeatStalled: false,
+-    cloudConnected: true,
+-    cacheArmed: true, // arming a pattern caches it immediately (edge_orchestrator.load_pattern)
+-    vlmRollTimer: 0,
+-    lastVlm: null,
+-    events: [
+-      { t: 0, kind: 'info', text: `Pattern ${plan.plan_id} armed: ${plan.boxes.length} placements — cached to local disk` },
+-    ],
+-    score: {
+-      palletsCompleted: 0,
+-      placementsDone: 0,
+-      vlmApplied: 0,
+-      vlmEscalated: 0,
+-      autonomyPlacements: 0,
+-      faultsRecovered: 0,
+-      uptimePct: 100,
+-    },
+-    simTime: 0,
+-    hbAccum: 0,
+-    hbLastChange: 0,
+-    faultTime: 0,
+-    palletDwell: 0,
+-    cloudCutDuringRun: false,
+-    frameCounter: 0,
++    phase: 'setup', state: 'IDLE', plan: buildPlan(setup, 1), setup, queuedSetup: setup, setupQueued: false,
++    speedOverride: 1.0, activeIndex: -1, progress: 0, placedCount: 0,
++    heartbeat: 0, heartbeatStalled: false, cloudConnected: true,
++    vlmRollTimer: 0, heldFrame: null, organicRolled: false,
++    events: [], score: freshScore(), shiftElapsed: 0, grade: null,
++    simTime: 0, hbAccum: 0, hbLastChange: 0, faultTime: 0, faultPenalized: false,
++    palletDwell: 0, frameCounter: 0, palletSeq: 1,
+   };
+ }
+ 
+ function pushEvent(s: CellSimState, kind: CellEvent['kind'], text: string) {
+-  s.events = [...s.events.slice(-39), { t: s.simTime, kind, text }];
++  s.events = [...s.events.slice(-49), { t: s.shiftElapsed, kind, text }];
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// Player actions (the sabotage deck)
++// Player actions
+ // ---------------------------------------------------------------------------
++export function actionStartShift(s: CellSimState, setup: ShiftSetup): CellSimState {
++  const plan = buildPlan(setup, 1);
++  const n: CellSimState = {
++    ...createSetupState(), phase: 'running', setup, queuedSetup: setup, plan,
++    speedOverride: s.speedOverride,
++  };
++  pushEvent(n, 'info', `Shift started — pattern ${plan.plan_id} armed: ${plan.boxes.length} placements, cached to local disk`);
++  const c = setup.constraints;
++  const parts = [c.max_height_mm ? `max_height ${c.max_height_mm}mm` : '', c.heavy_low ? 'heavy_low' : '', c.fragile_high ? 'fragile_high' : ''].filter(Boolean);
++  if (parts.length) pushEvent(n, 'info', `Optimizer constraints active: ${parts.join(', ')}`);
++  return n;
++}
++
++export function actionSetSpeed(s: CellSimState, speed: number): CellSimState {
++  if (speed === s.speedOverride) return s;
++  const n = { ...s, speedOverride: speed };
++  pushEvent(n, 'operator', `Speed override -> ${Math.round(speed * 100)}% (URScript v-scale ${(0.25 * speed).toFixed(3)} m/s)${speed > 1 ? ' — misfeed risk elevated' : ''}`);
++  return n;
++}
++
++export function actionQueueSetup(s: CellSimState, setup: ShiftSetup): CellSimState {
++  const n = { ...s, queuedSetup: setup, setupQueued: true };
++  pushEvent(n, 'operator', `Re-plan queued for next pattern: ${PROFILES[setup.profile].label}`);
++  return n;
++}
++
+ export function actionCutCloud(s: CellSimState): CellSimState {
+-  const n = { ...s, cloudConnected: false, cloudCutDuringRun: s.placedCount < s.plan.boxes.length };
++  const n = { ...s, cloudConnected: false };
+   pushEvent(n, 'autonomy', 'Cloud link severed — active pallet continues from local pattern cache');
+   return n;
+ }
+@@ -152,37 +185,68 @@ export function actionRestoreCloud(s: CellSimState): CellSimState {
+ 
+ export function actionMisfeed(s: CellSimState): CellSimState {
+   if (s.state !== 'MOVING') return s;
+-  const n: CellSimState = { ...s, state: 'EXCEPTION_HANDLING', vlmRollTimer: VLM_INFERENCE_S };
+-  pushEvent(n, 'info', `Misfed box at placement #${s.activeIndex} — cell holds safe pose, VLM engine engaged`);
++  const n: CellSimState = { ...s, state: 'EXCEPTION_HANDLING', vlmRollTimer: VLM_INFERENCE_S, heldFrame: null };
++  pushEvent(n, 'exception', `Misfed box at placement #${s.activeIndex} — cell holds safe pose, VLM engine engaged`);
+   return n;
+ }
+ 
+ export function actionStallHeartbeat(s: CellSimState): CellSimState {
+   if (s.heartbeatStalled || s.state === 'FAULT_ESTOP') return s;
+   const n = { ...s, heartbeatStalled: true };
+-  pushEvent(n, 'info', 'PLC heartbeat frozen — watchdog counting down 2.5 s');
++  pushEvent(n, 'info', `PLC heartbeat frozen — watchdog counting down ${HEARTBEAT_TIMEOUT_S}s`);
+   return n;
+ }
+ 
+ export function actionResetFault(s: CellSimState): CellSimState {
+   if (s.state !== 'FAULT_ESTOP') return s;
+   const n: CellSimState = {
+-    ...s,
+-    state: 'IDLE',
+-    heartbeatStalled: false,
+-    hbLastChange: s.simTime,
++    ...s, state: 'IDLE', heartbeatStalled: false, hbLastChange: s.simTime, faultPenalized: false,
+     score: { ...s.score, faultsRecovered: s.score.faultsRecovered + 1 },
+   };
+   pushEvent(n, 'info', `Operator reset acknowledged — resuming at placement #${s.placedCount} (nothing lost)`);
+   return n;
+ }
+ 
++/** Operator accepts a below-gate correction. The gate exists for a reason:
++ *  this carries a real rework risk, resolved deterministically per frame. */
++export function actionOperatorApprove(s: CellSimState, seedRef: { seed: number }): CellSimState {
++  if (s.state !== 'EXCEPTION_HANDLING' || !s.heldFrame) return s;
++  const rand = mulberry32(seedRef.seed * 48271 + s.heldFrame.frame * 17 + 5);
++  const clean = rand() < 0.7;
++  const n: CellSimState = { ...s, score: { ...s.score, operatorOverrides: s.score.operatorOverrides + 1 }, heldFrame: null, state: 'MOVING' };
++  if (clean) {
++    pushEvent(n, 'operator', `Operator override: applied dx=${s.heldFrame.dx} dy=${s.heldFrame.dy} mm at conf ${s.heldFrame.confidence.toFixed(4)} — placement clean`);
++  } else {
++    n.score.reworks += 1;
++    n.score.points = Math.max(0, n.score.points - 15);
++    pushEvent(n, 'rework', `Operator override at conf ${s.heldFrame.confidence.toFixed(4)} misplaced the box — flagged for rework (-15 pts). The gate was right.`);
++  }
++  return n;
++}
++
+ // ---------------------------------------------------------------------------
+ // The tick — one deterministic control-loop step
+ // ---------------------------------------------------------------------------
++function grade(score: CellScore): 'S' | 'A' | 'B' | 'C' {
++  if (score.uptimePct >= 97 && score.reworks === 0 && score.points >= 900) return 'S';
++  if (score.points >= 650) return 'A';
++  if (score.points >= 350) return 'B';
++  return 'C';
++}
++
+ export function tickCellSim(prev: CellSimState, dt: number, seedRef: { seed: number }): CellSimState {
++  if (prev.phase !== 'running') return prev;
+   const s: CellSimState = { ...prev, score: { ...prev.score } };
+   s.simTime += dt;
++  s.shiftElapsed += dt;
++
++  // End of shift
++  if (s.shiftElapsed >= SHIFT_LENGTH_S) {
++    s.phase = 'report';
++    s.grade = grade(s.score);
++    pushEvent(s, 'pallet', `Shift complete — ${s.score.palletsCompleted} pallets, ${s.score.points} pts, grade ${s.grade}`);
++    return s;
++  }
+ 
+   // Heartbeat publisher (mock cell: +1 every 500 ms)
+   if (!s.heartbeatStalled) {
+@@ -197,13 +261,22 @@ export function tickCellSim(prev: CellSimState, dt: number, seedRef: { seed: num
+   // Watchdog (edge_orchestrator._check_heartbeat)
+   if (s.state !== 'FAULT_ESTOP' && s.simTime - s.hbLastChange > HEARTBEAT_TIMEOUT_S) {
+     s.state = 'FAULT_ESTOP';
+-    pushEvent(s, 'fault', `Heartbeat stalled > ${HEARTBEAT_TIMEOUT_S}s — FAULT_ESTOP latched, no motion commands issued`);
++    if (!s.faultPenalized) {
++      s.faultPenalized = true;
++      s.score.points = Math.max(0, s.score.points - 20);
++    }
++    pushEvent(s, 'fault', `Heartbeat stalled > ${HEARTBEAT_TIMEOUT_S}s — FAULT_ESTOP latched, no motion commands issued (-20 pts)`);
+   }
+ 
+-  if (s.state === 'FAULT_ESTOP') {
+-    s.faultTime += dt;
++  const finalize = () => {
+     s.score.uptimePct = Math.round(((s.simTime - s.faultTime) / Math.max(s.simTime, 0.001)) * 1000) / 10;
++    s.score.throughputPerMin = Math.round((s.score.placementsDone / Math.max(s.shiftElapsed, 1)) * 600) / 10;
+     return s;
++  };
++
++  if (s.state === 'FAULT_ESTOP') {
++    s.faultTime += dt;
++    return finalize();
+   }
+ 
+   // VLM exception path (vlm_exception_engine.handle_exception)
+@@ -215,74 +288,86 @@ export function tickCellSim(prev: CellSimState, dt: number, seedRef: { seed: num
+       const confidence = Math.round((0.9 + rand() * 0.1) * 10000) / 10000;
+       const dx = Math.round((rand() - 0.5) * 24 * 100) / 100;
+       const dy = Math.round((rand() - 0.5) * 24 * 100) / 100;
+-      s.lastVlm = { confidence, dx, dy };
+       if (confidence > VLM_CONFIDENCE_GATE) {
+         s.score.vlmApplied += 1;
++        s.score.points += 10;
+         s.state = 'MOVING';
+-        pushEvent(
+-          s,
+-          'vlm_pass',
+-          `frame-${s.frameCounter}: conf ${confidence.toFixed(4)} > ${VLM_CONFIDENCE_GATE} — correction dx=${dx} dy=${dy} mm written, move re-armed`
+-        );
++        s.heldFrame = null;
++        pushEvent(s, 'vlm_pass', `frame-${s.frameCounter}: conf ${confidence.toFixed(4)} > ${VLM_CONFIDENCE_GATE} — correction dx=${dx} dy=${dy} mm written, move re-armed (+10 pts)`);
+       } else {
+         s.score.vlmEscalated += 1;
+-        s.vlmRollTimer = VLM_INFERENCE_S; // next frame, next roll — motion never guesses
+-        pushEvent(
+-          s,
+-          'vlm_reject',
+-          `frame-${s.frameCounter}: conf ${confidence.toFixed(4)} ≤ ${VLM_CONFIDENCE_GATE} — no autonomous write, re-imaging`
+-        );
++        s.heldFrame = { confidence, dx, dy, frame: s.frameCounter };
++        s.vlmRollTimer = VLM_INFERENCE_S;
++        pushEvent(s, 'vlm_reject', `frame-${s.frameCounter}: conf ${confidence.toFixed(4)} ≤ ${VLM_CONFIDENCE_GATE} — held. Wait for the gate, or override at your own risk.`);
+       }
+     }
+-    s.score.uptimePct = Math.round(((s.simTime - s.faultTime) / Math.max(s.simTime, 0.001)) * 1000) / 10;
+-    return s;
++    return finalize();
+   }
+ 
+-  // Pallet dwell between builds
++  // Pallet dwell -> arm next pattern (cache vs cloud, queued re-plan applied here)
+   if (s.palletDwell > 0) {
+     s.palletDwell -= dt;
+     if (s.palletDwell <= 0) {
+-      seedRef.seed += 1;
+-      const source = s.cloudConnected ? 'cloud' : 'local cache';
+-      const fresh = createCellSim(seedRef.seed);
+-      pushEvent(fresh, s.cloudConnected ? 'info' : 'autonomy', `Next pattern ${fresh.plan.plan_id} served from ${source}`);
+-      // carry the running score, clocks, and link state across pallets
+-      return {
+-        ...fresh,
+-        cloudConnected: s.cloudConnected,
+-        cloudCutDuringRun: false,
+-        simTime: s.simTime,
+-        hbLastChange: s.simTime,
+-        heartbeat: s.heartbeat,
+-        faultTime: s.faultTime,
+-        score: s.score,
+-        events: [...s.events.slice(-30), ...fresh.events],
+-      };
++      s.palletSeq += 1;
++      if (s.setupQueued) {
++        s.setup = s.queuedSetup;
++        s.setupQueued = false;
++      }
++      s.plan = buildPlan(s.setup, s.palletSeq);
++      s.placedCount = 0;
++      s.activeIndex = -1;
++      s.progress = 0;
++      const src = s.cloudConnected ? 'cloud' : 'LOCAL CACHE';
++      pushEvent(s, s.cloudConnected ? 'info' : 'autonomy', `Pattern ${s.plan.plan_id} armed from ${src}: ${s.plan.boxes.length} placements (${PROFILES[s.setup.profile].label})`);
+     }
+-    return s;
++    return finalize();
+   }
+ 
+-  // Dispatch / motion (edge_orchestrator._step_state_machine)
++  // Pallet complete
+   if (s.placedCount >= s.plan.boxes.length) {
+     s.score.palletsCompleted += 1;
++    const bonus = PROFILES[s.setup.profile].palletBonus;
++    s.score.points += bonus;
+     s.state = 'IDLE';
+     s.activeIndex = -1;
+-    s.palletDwell = 1.6;
+-    pushEvent(s, 'pallet', `Pattern ${s.plan.plan_id} complete — ${s.plan.boxes.length} placements, pallet #${s.score.palletsCompleted} out`);
+-    return s;
++    s.palletDwell = 1.4;
++    pushEvent(s, 'pallet', `Pattern ${s.plan.plan_id} complete — pallet #${s.score.palletsCompleted} out (+${bonus} pts)`);
++    return finalize();
+   }
+ 
++  // Dispatch (edge_orchestrator._step_state_machine)
+   if (s.state === 'IDLE') {
+     s.state = 'MOVING';
+     s.activeIndex = s.placedCount;
+     s.progress = 0;
++    s.organicRolled = false;
+   }
+ 
+   if (s.state === 'MOVING') {
+-    s.progress += dt * PLACEMENT_SPEED;
++    s.progress += dt * BASE_PLACEMENT_SPEED * s.speedOverride;
++
++    // Organic misfeed roll — once per placement, mid-move. Risk scales with
++    // speed override and the fragility of the box in the gripper.
++    if (!s.organicRolled && s.progress >= 0.4) {
++      s.organicRolled = true;
++      const box = s.plan.boxes[s.activeIndex];
++      const fragility = (box as { fragility?: number }).fragility ?? 0;
++      const speedFactor = s.speedOverride <= 0.75 ? 0.4 : s.speedOverride <= 1.0 ? 1.0 : 3.2;
++      const p = 0.05 * speedFactor * (1 + fragility * 1.5);
++      const rand = mulberry32(seedRef.seed * 7907 + s.score.placementsDone * 13 + s.palletSeq);
++      if (rand() < p) {
++        s.state = 'EXCEPTION_HANDLING';
++        s.vlmRollTimer = VLM_INFERENCE_S;
++        s.heldFrame = null;
++        pushEvent(s, 'exception', `Gripper slip on ${box.sku_id ?? 'box'} at ${Math.round(s.speedOverride * 100)}% speed${fragility > 0.5 ? ' (fragile)' : ''} — cell holds safe pose, VLM engaged`);
++        return finalize();
++      }
++    }
++
+     if (s.progress >= 1) {
+       s.placedCount += 1;
+       s.score.placementsDone += 1;
++      s.score.points += 5;
+       if (!s.cloudConnected) s.score.autonomyPlacements += 1;
+       s.progress = 0;
+       s.activeIndex = s.placedCount < s.plan.boxes.length ? s.placedCount : -1;
+@@ -290,6 +375,5 @@ export function tickCellSim(prev: CellSimState, dt: number, seedRef: { seed: num
+     }
+   }
+ 
+-  s.score.uptimePct = Math.round(((s.simTime - s.faultTime) / Math.max(s.simTime, 0.001)) * 1000) / 10;
+-  return s;
++  return finalize();
+ }
+-- 
+2.43.0
+
