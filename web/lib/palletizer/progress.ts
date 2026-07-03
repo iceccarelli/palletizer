@@ -52,6 +52,13 @@ export const MISSIONS: Mission[] = [
     proof: 'You edited a build in flight and got a valid program for the rest — closed-loop execution, not a movie.',
   },
   {
+    id: 'fault_marshal',
+    demo: 'cell',
+    title: 'Fault Marshal',
+    detail: 'In one shift: cut the cloud mid-pallet, clear a misfeed through the VLM gate, recover a FAULT_ESTOP, and still ship a pallet.',
+    proof: 'You attacked a live cell three ways and it shipped anyway — cache autonomy, confidence-gated correction, and watchdog recovery are the shipped edge stack, not a movie.',
+  },
+  {
     id: 'constraint_whisperer',
     demo: 'twin',
     title: 'Constraint Whisperer',

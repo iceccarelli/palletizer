@@ -3,6 +3,9 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { DemoProduction, DemoEcomm, DemoStress, DemoMultiPallet, DemoRobot, DemoTwin } from '@/components/demos/Demos';
+import dynamic from 'next/dynamic';
+
+const DemoCell = dynamic(() => import('@/components/demos/CellSimulator'), { ssr: false });
 import { ProgressMeter, useHydrated } from '@/components/demos/game';
 import { missionForDemo, useProgress } from '@/lib/palletizer/progress';
 
@@ -19,6 +22,8 @@ const TABS = [
     challenge: 'Pause the robot mid-build, move a placed box, and export URScript for only the remaining picks.' },
   { id: 'twin', label: 'Digital Twin + Co-Pilot', desc: 'NL constraints • hybrid parser', C: DemoTwin,
     challenge: 'Type \u201cprotect the glass and keep it under 1200mm\u201d — watch it become constraints, then a re-planned pallet.' },
+  { id: 'cell', label: 'Live Cell OS', desc: 'Sabotage a running cell • real edge stack', C: DemoCell,
+    challenge: 'Cut the cloud, misfeed a box, freeze the heartbeat. The state machine, watchdog, and VLM gate you\u2019re fighting are the shipped edge stack.' },
 ] as const;
 
 export default function DemosPage() {

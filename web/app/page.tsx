@@ -34,10 +34,10 @@ export default function PalletizerLanding() {
               Try the Live Optimizer <Play className="w-5 h-5 group-hover:translate-x-0.5 transition" />
             </Link>
             <Link 
-              href="#product" 
+              href="/demos?tab=cell" 
               className="inline-flex items-center justify-center gap-3 px-8 py-4 border border-white/30 hover:bg-white/5 text-lg font-semibold rounded-3xl transition-all"
             >
-              See How It Works
+              Sabotage a Live Cell
             </Link>
           </div>
 
@@ -62,6 +62,54 @@ export default function PalletizerLanding() {
           <div>ROBOT INTEGRATORS WORLDWIDE</div>
         </div>
       </div>
+
+      {/* LIVE CELL OS — play the shipped edge stack */}
+      <section className="section-padding border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
+            <div>
+              <div className="text-xs tracking-[3px] text-primary mb-4">NEW • LIVE CELL OS</div>
+              <h2 className="text-3xl md:text-5xl font-semibold tracking-tighter mb-5">
+                Try to stop it.<br />We dare you.
+              </h2>
+              <p className="text-white/70 text-lg leading-relaxed mb-6">
+                Cut the cloud link mid-pallet — the cell finishes from local cache. Misfeed a box — motion
+                only resumes when a vision frame clears the 0.95 confidence gate. Freeze the heartbeat —
+                the watchdog latches FAULT_ESTOP in 2.5 seconds instead of moving blind.
+              </p>
+              <p className="text-white/50 text-sm leading-relaxed mb-8">
+                The state machine, thresholds, and recovery logic you&apos;re fighting are a browser mirror of the
+                shipped edge stack (<code className="text-white/70">gateway/edge_orchestrator.py</code>). On hardware
+                it speaks OPC UA and streams URScript.
+              </p>
+              <Link
+                href="/demos?tab=cell"
+                className="group inline-flex items-center gap-3 px-8 py-4 bg-white text-black text-lg font-semibold rounded-3xl hover:bg-white/90 transition-all"
+              >
+                Run the shift <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition" />
+              </Link>
+            </div>
+            <div className="glass rounded-3xl border border-white/10 p-6">
+              <div className="grid grid-cols-2 gap-3 font-mono text-[11px]">
+                {[
+                  { s: "IDLE", c: "border-emerald-400/50 text-emerald-300" },
+                  { s: "MOVING", c: "border-sky-400/50 text-sky-300" },
+                  { s: "EXCEPTION_HANDLING", c: "border-amber-400/50 text-amber-300" },
+                  { s: "FAULT_ESTOP", c: "border-red-500/50 text-red-300" },
+                ].map((x) => (
+                  <div key={x.s} className={`px-3 py-4 rounded-xl border bg-white/[0.02] ${x.c}`}>{x.s}</div>
+                ))}
+              </div>
+              <div className="mt-4 space-y-1.5 font-mono text-[10.5px] text-white/45 leading-relaxed">
+                <div><span className="text-sky-300">[12.4s]</span> Cloud link severed — active pallet continues from local pattern cache</div>
+                <div><span className="text-amber-400">[15.1s]</span> frame-3: conf 0.9312 ≤ 0.95 — no autonomous write, re-imaging</div>
+                <div><span className="text-emerald-400">[15.5s]</span> frame-4: conf 0.9875 &gt; 0.95 — correction dx=-9.93 dy=2.31 mm written, move re-armed</div>
+                <div><span className="text-violet-300">[31.0s]</span> Pattern plan_cell_1 complete — 12 placements, pallet #1 out</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* THE PROBLEM (Brutal) */}
       <SectionShell>
