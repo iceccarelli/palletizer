@@ -173,7 +173,7 @@ export function ScoreDuel({
   );
 }
 
-/** Header progress: mastered n/6 with per-mission pips. */
+/** Header progress: mastered n/total with per-mission pips. */
 const EMPTY_COMPLETED: Record<string, number> = {};
 
 export function ProgressMeter({ onNavigate }: { onNavigate?: (demo: string) => void }) {
@@ -206,7 +206,7 @@ export function ProgressMeter({ onNavigate }: { onNavigate?: (demo: string) => v
         })}
       </div>
       <div className="text-xs text-white/60">
-        <span className="font-mono text-white">{n}/6</span> missions
+        <span className="font-mono text-white">{n}/{MISSIONS.length}</span> missions
         {engineBeaten && <span className="ml-2 text-rose-400 font-semibold tracking-wider">⚔ ENGINE BEATEN</span>}
         {n === 6 && <span className="ml-2 text-amber-300 font-semibold tracking-wider">★ SUITE MASTERED</span>}
       </div>
