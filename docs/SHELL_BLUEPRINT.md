@@ -35,13 +35,13 @@ this structure to any product site; keep the rules, swap the content.
    the claim it can defend. Ours: *"Every metric on this site is derived
    from geometry — no canned animations, no invented numbers."*
 4. **Nine social marks, one config file.** `web/lib/social.ts` is the single
-   source of truth. Platforms without a live account render dimmed and
-   unlinked with a "launching soon" tooltip — never link to a profile that
-   doesn't exist. Creating the account + pasting one URL flips the icon
-   live. Claim the identical handle on all platforms before posting
-   anything (ours: `@palletizerapp`).
-   Order (most-used, B2B-weighted): X, LinkedIn, YouTube, Instagram,
-   Facebook, TikTok, WhatsApp, GitHub, Email.
+   source of truth, with three honest stages per platform: empty url →
+   dimmed, unlinked, "launching soon" tooltip; platform landing page →
+   clickable placeholder while the campaign spins up (never a dead profile
+   link); profile URL → fully live. Upgrading a platform is a one-line
+   edit. Claim the identical handle everywhere before posting (ours:
+   `@palletizerapp`). Order (most-used, B2B-weighted): X, LinkedIn,
+   YouTube, Instagram, Facebook, TikTok, WhatsApp, GitHub, Email.
 5. **Legal line format** (AWS convention, adopted):
    `© 2026, Grimaldi Engineering Services, Inc. or its affiliates. All rights reserved.`
    Defined once in `web/lib/social.ts` as `COPYRIGHT_LINE`; the footer and

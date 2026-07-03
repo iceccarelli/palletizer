@@ -87,7 +87,7 @@ export default function LiveOptimizerDemo() {
         <div className="flex items-end justify-between mb-8">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <div className="px-3 py-1 bg-primary/10 text-primary text-xs tracking-[2px] rounded">PRODUCTION DEMO</div>
+              <div className="px-3 py-1 bg-primary/10 text-primary text-xs tracking-[3px] rounded">PRODUCTION DEMO</div>
               <div className="text-xs text-white/50">POWERED BY SMARTPALLETOPTIMIZER v0.2 • INTEGRATES WITH GITHUB REPO</div>
             </div>
             <h1 className="text-4xl md:text-6xl font-semibold tracking-tighter">Live Pallet Optimizer</h1>

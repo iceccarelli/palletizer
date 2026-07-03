@@ -1,7 +1,7 @@
-// Single source of truth for social presence. The footer renders ALL nine
-// platforms; entries with an empty url appear dimmed with "launching soon"
-// until you create the account and paste the profile URL here — one edit,
-// icon goes live. Claim the SAME handle everywhere before posting anything.
+// Single source of truth for social presence. All nine icons are clickable;
+// urls are staged: platform landing pages as placeholders now, upgraded to
+// profile URLs one edit at a time as each account launches. (An entry with
+// an empty url would render dimmed/unlinked — the SocialRow supports both.)
 
 export interface SocialEntry {
   id: string;
@@ -12,14 +12,18 @@ export interface SocialEntry {
   handle: string;
 }
 
+// MARKETING STAGE: placeholder landing pages. Each url currently points to
+// the platform's home page; when a profile goes live, replace with the
+// profile URL (keep the handle column as the claim list — identical handle
+// everywhere: @palletizerapp).
 export const SOCIALS: SocialEntry[] = [
-  { id: 'x', label: 'X', url: '', handle: '@palletizerapp' },
-  { id: 'linkedin', label: 'LinkedIn', url: '', handle: 'company/palletizer' },
-  { id: 'youtube', label: 'YouTube', url: '', handle: '@palletizerapp' },
-  { id: 'instagram', label: 'Instagram', url: '', handle: '@palletizerapp' },
-  { id: 'facebook', label: 'Facebook', url: '', handle: 'palletizerapp' },
-  { id: 'tiktok', label: 'TikTok', url: '', handle: '@palletizerapp' },
-  { id: 'whatsapp', label: 'WhatsApp', url: '', handle: 'business line' },
+  { id: 'x', label: 'X', url: 'https://x.com', handle: '@palletizerapp' },
+  { id: 'linkedin', label: 'LinkedIn', url: 'https://www.linkedin.com', handle: 'company/palletizer' },
+  { id: 'youtube', label: 'YouTube', url: 'https://www.youtube.com', handle: '@palletizerapp' },
+  { id: 'instagram', label: 'Instagram', url: 'https://www.instagram.com', handle: '@palletizerapp' },
+  { id: 'facebook', label: 'Facebook', url: 'https://www.facebook.com', handle: 'palletizerapp' },
+  { id: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com', handle: '@palletizerapp' },
+  { id: 'whatsapp', label: 'WhatsApp', url: 'https://www.whatsapp.com', handle: 'business line' },
   { id: 'github', label: 'GitHub', url: 'https://github.com/iceccarelli/palletizer', handle: 'iceccarelli/palletizer' },
   { id: 'email', label: 'Email', url: 'mailto:contact@palletizer.app', handle: 'contact@palletizer.app' },
 ];

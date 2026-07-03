@@ -40,7 +40,7 @@ export default function DemosPage() {
         <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <div className="px-3 py-1 bg-primary/10 text-primary text-xs tracking-[2px] rounded">INTERACTIVE DEMO SUITE</div>
+              <div className="px-3 py-1 bg-primary/10 text-primary text-xs tracking-[3px] rounded">INTERACTIVE DEMO SUITE</div>
               <div className="text-xs text-white/50 hidden md:block">
                 SAME ALGORITHM AS THE PYTHON CORE • EVERY METRIC DERIVED FROM GEOMETRY
               </div>

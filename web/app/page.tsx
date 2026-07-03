@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeader, Eyebrow, SectionTitle, Card } from "@/components/Section";
 import { motion } from "framer-motion";
 import { 
   ArrowRight, Check, Play, Zap, Shield, TrendingUp, 
@@ -64,10 +65,10 @@ export default function PalletizerLanding() {
 
       {/* THE PROBLEM (Brutal) */}
       <section className="section-padding max-w-5xl mx-auto px-6">
-        <div className="text-center mb-12">
-          <div className="text-accent text-sm tracking-[3px] mb-3">THE HIDDEN COST OF "GOOD ENOUGH"</div>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tighter">Manual and basic automation is bleeding your margins.</h2>
-        </div>
+        <SectionHeader
+          eyebrow={'The hidden cost of "good enough"'}
+          title="Manual and basic automation is bleeding your margins."
+        />
         
         <div className="grid md:grid-cols-3 gap-6">
           {[
@@ -75,11 +76,11 @@ export default function PalletizerLanding() {
             { icon: TrendingUp, title: "Mixed-SKU Chaos", desc: "Traditional systems choke on variety. Most factories still resort to manual stacking for complex orders — killing throughput." },
             { icon: Shield, title: "No Proof, No Trust", desc: "Black-box patterns. No stability validation. No ROI numbers. Integrators and plant managers are flying blind on every deployment." },
           ].map((item, i) => (
-            <div key={i} className="glass p-8 rounded-3xl border border-white/10">
+            <Card key={i}>
               <item.icon className="w-9 h-9 mb-6 text-accent" />
               <h3 className="text-2xl font-semibold tracking-tight mb-3">{item.title}</h3>
               <p className="text-white/70 leading-relaxed">{item.desc}</p>
-            </div>
+            </Card>
           ))}
         </div>
       </section>
@@ -89,10 +90,10 @@ export default function PalletizerLanding() {
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-col lg:flex-row gap-12 items-center">
             <div className="flex-1">
-              <div className="uppercase tracking-[3px] text-xs text-primary mb-3">THE ONE HARD CAPABILITY</div>
-              <h2 className="text-4xl md:text-6xl font-semibold tracking-tighter leading-none mb-6">
+              <Eyebrow>The one hard capability</Eyebrow>
+              <SectionTitle className="mb-6">
                 Live Mixed-SKU<br />Pallet Optimizer
-              </h2>
+              </SectionTitle>
               <p className="text-xl text-white/80 max-w-lg">
                 Upload your real SKU master. Get physics-validated 3D plans in seconds. 
                 Stability score. Density uplift. Full audit trail. Export ready for any robot.
@@ -116,10 +117,10 @@ export default function PalletizerLanding() {
                 { value: "< 3s", label: "Time to validated plan" },
                 { value: "$187k+", label: "Projected annual savings (reference)" },
               ].map((stat, index) => (
-                <div key={index} className="glass p-7 rounded-3xl border border-white/10">
-                  <div className="text-5xl font-mono font-semibold tracking-tighter text-primary mb-1">{stat.value}</div>
+                <Card key={index}>
+                  <div className="text-4xl md:text-5xl font-mono font-semibold tracking-tighter text-primary mb-1">{stat.value}</div>
                   <div className="text-sm text-white/70">{stat.label}</div>
-                </div>
+                </Card>
               ))}
             </div>
           </div>
@@ -128,10 +129,10 @@ export default function PalletizerLanding() {
 
       {/* SOLUTIONS / INDUSTRIES with Unsplash style backgrounds */}
       <section id="solutions" className="section-padding max-w-7xl mx-auto px-6">
-        <div className="text-center mb-12">
-          <div className="text-sm tracking-[3px] text-accent mb-2">BUILT FOR THE TOUGHEST ENVIRONMENTS</div>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tighter">Solutions that win in every vertical</h2>
-        </div>
+        <SectionHeader
+          eyebrow="Built for the toughest environments"
+          title="Solutions that win in every vertical"
+        />
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
@@ -140,12 +141,12 @@ export default function PalletizerLanding() {
             { title: "Pharma & Medical", desc: "Compliance-first. Audit logs, validated stability, CFR-ready exports. Zero risk tolerance.", img: "https://images.unsplash.com/photo-1585435557343-3b092031a831?w=800" },
             { title: "Consumer Packaged Goods", desc: "Multi-SKU lines. Fast changeovers. Consistent high-density pallets that protect brand and margins.", img: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800" },
           ].map((sol, i) => (
-            <div key={i} className="group relative overflow-hidden rounded-3xl aspect-[16/11] flex flex-col justify-end p-7 border border-white/10">
+            <div key={i} className="group relative overflow-hidden rounded-3xl aspect-[16/11] flex flex-col justify-end p-8 border border-white/10">
               <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110" 
                    style={{ backgroundImage: `url(${sol.img})` }} />
               <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/70 to-black/90" />
               <div className="relative z-10">
-                <h3 className="text-3xl font-semibold tracking-tight mb-2">{sol.title}</h3>
+                <h3 className="text-2xl font-semibold tracking-tight mb-2">{sol.title}</h3>
                 <p className="text-white/80 text-sm leading-relaxed">{sol.desc}</p>
               </div>
             </div>
@@ -156,8 +157,11 @@ export default function PalletizerLanding() {
       {/* FINAL CTA - Ruthless */}
       <section className="section-padding bg-[#020617] border-t border-white/10">
         <div className="max-w-3xl mx-auto px-6 text-center">
-          <h2 className="text-4xl md:text-6xl font-semibold tracking-tighter mb-6">Ready to turn palletizing into a profit center?</h2>
-          <p className="text-xl text-white/70 mb-10">Join the manufacturers who are already seeing measurable ROI from live optimization.</p>
+          <Eyebrow>Get started</Eyebrow>
+          <SectionTitle className="mb-6">Ready to turn palletizing into a profit center?</SectionTitle>
+          <p className="text-lg md:text-xl text-white/70 mb-10">
+            Run the live engine on your own SKU data — measured density, stability, and ROI before you ever talk to us.
+          </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/demo" className="px-14 py-5 text-xl font-semibold bg-primary hover:bg-primary/90 rounded-3xl transition flex items-center justify-center gap-3">
