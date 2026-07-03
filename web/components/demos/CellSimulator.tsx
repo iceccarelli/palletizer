@@ -14,8 +14,13 @@ import {
   Play, Trophy, ListChecks, Wrench, Flame, ClipboardCopy, ArrowUpToLine,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import dynamic from 'next/dynamic';
 import { MissionBanner, useMission } from './game';
-import { Scene } from './shared';
+
+const CellScene = dynamic(() => import('./CellScene'), {
+  ssr: false,
+  loading: () => <div className="h-[440px] flex items-center justify-center text-white/40 text-sm font-mono">Spinning up the cell…</div>,
+});
 import {
   CellSimState, ShiftSetup, EdgeState, CellOrder,
   createSetupState, tickCellSim,
@@ -426,12 +431,15 @@ export default function CellSimulator() {
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 space-y-4">
           <div className="glass rounded-3xl border border-white/10 overflow-hidden relative">
-            <Scene
+            <CellScene
               boxes={sim.plan.boxes}
-              interactive={false}
-              robot={{ activeIndex: sim.activeIndex, progress: sim.progress, placedCount: sim.placedCount }}
-              heightClass="h-[440px]"
-              paletteTag={sim.activeOrder ? `${sim.activeOrder.id} • ${sim.plan.plan_id}` : sim.plan.plan_id}
+              activeIndex={sim.activeIndex}
+              progress={sim.progress}
+              placedCount={sim.placedCount}
+              state={sim.state}
+              gripperWear={sim.gripperWear}
+              heightClass="h-[480px]"
+              palletTag={sim.activeOrder ? `${sim.activeOrder.id} • ${sim.plan.plan_id}` : sim.plan.plan_id}
             />
             {/* Floating score popups — driven by real sim events */}
             <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none">
