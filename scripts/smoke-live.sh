@@ -79,6 +79,17 @@ assert c.get("fragile_high") is True and c.get("max_height_mm") == 1200
 assert d["plan"]["metrics"]["stack_height_mm"] <= 1200
 PY
 
+echo "== /api/assistant — grounded answer with engine label"
+ASSIST=$(curl -s -X POST "$BASE/api/assistant" -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"how does the stability score work?"}]}')
+python3 - "$ASSIST" <<'PY' && ok "assistant: labeled reply mentioning the real stability formula" || bad "assistant: bad reply"
+import json, sys
+d = json.loads(sys.argv[1])
+assert d["engine"] in ("claude", "rules")
+assert "0.6" in d["reply"] and "0.4" in d["reply"]
+PY
+check "assistant: empty messages → 400" "400" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/assistant" -H 'Content-Type: application/json' -d '{"messages":[]}')"
+
 echo "== Latency sanity (server-side engine)"
 T=$(curl -s -o /dev/null -w "%{time_total}" -X POST "$BASE/api/optimize" -H 'Content-Type: application/json' -d '{"skus":[{"sku_id":"T","length_mm":300,"width_mm":300,"height_mm":200,"weight_kg":4}]}')
 python3 -c "import sys; t=float('$T'); sys.exit(0 if t < 3.0 else 1)" && ok "optimize round-trip ${T}s (< 3s)" || bad "optimize slow: ${T}s"

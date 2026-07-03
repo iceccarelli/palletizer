@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import AssistantWidget from "@/components/AssistantWidget";
 
 export const metadata: Metadata = {
   title: "Palletizer | The Intelligent OS for End-of-Line Palletizing",
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Navbar />
         {children}
         <Footer />
+        <AssistantWidget />
         <Toaster position="top-center" richColors closeButton />
       </body>
     </html>

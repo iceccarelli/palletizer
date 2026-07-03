@@ -23,6 +23,12 @@ const TABS = [
 
 export default function DemosPage() {
   const [active, setActive] = useState<string>('main');
+
+  // Deep links from header/footer: /demos?tab=stress etc.
+  React.useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab && TABS.some((t) => t.id === tab)) setActive(tab);
+  }, []);
   const Active = TABS.find((t) => t.id === active)!.C;
   const hydrated = useHydrated();
   const completedRaw = useProgress((s) => s.completed);
