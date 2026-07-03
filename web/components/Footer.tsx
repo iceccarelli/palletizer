@@ -4,7 +4,9 @@
 // Only links that resolve to something real.
 
 import Link from "next/link";
-import { ArrowUp, Github } from "lucide-react";
+import { ArrowUp } from "lucide-react";
+import SocialRow from "@/components/SocialRow";
+import { COPYRIGHT_LINE } from "@/lib/social";
 
 const GH = "https://github.com/iceccarelli/palletizer";
 
@@ -93,18 +95,14 @@ export default function Footer() {
           </p>
         </div>
 
-        {/* Social + legal row */}
-        <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Link href={GH} target="_blank" aria-label="GitHub" className="text-white/50 hover:text-white transition">
-              <Github className="w-5 h-5" />
-            </Link>
-          </div>
-          <div className="flex items-center gap-5 text-xs text-white/45">
+        {/* Social + legal row — AWS pattern: marks right-aligned above the legal line */}
+        <div className="mt-8 flex flex-col-reverse md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-5 text-xs text-white/45 flex-wrap justify-center">
             <Link href="/privacy" className="hover:text-white transition">Privacy</Link>
             <Link href="/terms" className="hover:text-white transition">Site terms</Link>
-            <span>© 2026 Palletizer. All rights reserved.</span>
+            <span>{COPYRIGHT_LINE}</span>
           </div>
+          <SocialRow />
         </div>
       </div>
     </footer>
