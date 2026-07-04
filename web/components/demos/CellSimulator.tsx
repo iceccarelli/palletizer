@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   CloudOff, Cloud, PackageX, HeartPulse, RotateCcw, ShieldCheck, Gauge,
-  Play, Trophy, ListChecks, Wrench, Flame, ClipboardCopy, ArrowUpToLine,
+  Play, Pause, Trophy, ListChecks, Wrench, Flame, ClipboardCopy, ArrowUpToLine, Move3d,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
@@ -27,6 +27,7 @@ import {
   actionStartShift, actionSetSpeed, actionQueueSetup, actionPrioritizeOrder,
   actionServiceGripper, actionCutCloud, actionRestoreCloud, actionMisfeed,
   actionStallHeartbeat, actionResetFault, actionOperatorApprove,
+  actionPause, actionResume, actionMoveBox,
   HEARTBEAT_TIMEOUT_S, VLM_CONFIDENCE_GATE, SHIFT_LENGTH_S, SERVICE_TIME_S,
   ON_TIME_BONUS, SPEED_STEPS, PROFILES,
 } from '@/lib/palletizer/cellsim';
@@ -78,7 +79,7 @@ function StateRibbon({ sim }: { sim: CellSimState }) {
   );
 }
 
-function Hud({ sim, onService }: { sim: CellSimState; onService: () => void }) {
+function Hud({ sim, onService, onTogglePause }: { sim: CellSimState; onService: () => void; onTogglePause: () => void }) {
   const left = Math.max(0, SHIFT_LENGTH_S - sim.shiftElapsed);
   const mm = Math.floor(left / 60);
   const ss = Math.floor(left % 60).toString().padStart(2, '0');
@@ -86,6 +87,13 @@ function Hud({ sim, onService }: { sim: CellSimState; onService: () => void }) {
   const wearColor = wear > 0.8 ? 'bg-red-500' : wear > 0.5 ? 'bg-amber-400' : 'bg-emerald-400';
   return (
     <div className="glass rounded-2xl border border-white/10 px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+      <button onClick={onTogglePause}
+        disabled={sim.state === 'FAULT_ESTOP'}
+        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition disabled:opacity-35 disabled:cursor-not-allowed ${
+          sim.paused ? 'bg-emerald-500 hover:bg-emerald-400 text-black' : 'bg-white/10 hover:bg-white/15 border border-white/20'}`}>
+        {sim.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+        {sim.paused ? 'RESUME' : 'PAUSE'}
+      </button>
       <div>
         <div className="text-[9px] tracking-[2px] text-white/40 font-mono">POINTS</div>
         <div className="text-2xl font-mono font-semibold leading-none">{sim.score.points}</div>
@@ -294,7 +302,7 @@ function ReportCard({ sim, board, onAgain, onSetup }: { sim: CellSimState; board
     ['Points', s.points], ['Pallets shipped', s.palletsCompleted], ['On-time / late', `${s.onTimeOrders} / ${s.lateOrders}`],
     ['Throughput', `${s.throughputPerMin}/min`], ['Uptime', `${s.uptimePct}%`], ['Best streak', s.bestStreak],
     ['Gate-passed corrections', s.vlmApplied], ['Operator overrides', s.operatorOverrides], ['Reworks caused', s.reworks],
-    ['Cache-autonomy placements', s.autonomyPlacements], ['E-stops recovered', s.faultsRecovered], ['Gripper services', s.services],
+    ['Cache-autonomy placements', s.autonomyPlacements], ['E-stops recovered', s.faultsRecovered], ['Cartons re-planned by hand', s.movedBoxes],
   ] as const;
   const share = () => {
     const text = `Live Cell OS shift: ${s.points} pts, grade ${sim.grade} — ${s.palletsCompleted} pallets, ${s.onTimeOrders} on-time, ${s.uptimePct}% uptime. Try to beat it: https://palletizer-app.vercel.app/demos?tab=cell`;
@@ -426,7 +434,7 @@ export default function CellSimulator() {
     <div className="space-y-4">
       <MissionBanner demo="cell" />
       <StateRibbon sim={sim} />
-      <Hud sim={sim} onService={() => act(actionServiceGripper)} />
+      <Hud sim={sim} onService={() => act(actionServiceGripper)} onTogglePause={() => setSim((s) => (s.paused ? actionResume(s) : actionPause(s)))} />
 
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 space-y-4">
@@ -440,7 +448,14 @@ export default function CellSimulator() {
               gripperWear={sim.gripperWear}
               heightClass="h-[480px]"
               palletTag={sim.activeOrder ? `${sim.activeOrder.id} • ${sim.plan.plan_id}` : sim.plan.plan_id}
+              paused={sim.paused}
+              onMoveBox={(i, x, y, z) => setSim((s) => actionMoveBox(s, i, x, y, z))}
             />
+            {sim.paused && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-sky-400/15 border border-sky-400/40 text-sky-300 text-xs font-mono tracking-wider flex items-center gap-2">
+                <Move3d className="w-3.5 h-3.5" /> CYCLE HOLD — DRAG PLACED CARTONS TO RE-PLAN • DEADLINES KEEP COUNTING
+              </div>
+            )}
             {/* Floating score popups — driven by real sim events */}
             <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none">
               <AnimatePresence>

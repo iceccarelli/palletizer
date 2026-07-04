@@ -17,10 +17,11 @@
 // placedCount), colors come from EdgeState, wear tints the gripper pads.
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber';
 import { ContactShadows, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DEFAULT_PALLET, PalletSpec, Placement } from '@/lib/palletizer/types';
+import { settleZ } from '@/lib/palletizer/stability';
 import type { EdgeState } from '@/lib/palletizer/cellsim';
 import {
   AndonStatus, AndonTower, CELL_LAYER_COLORS, CellFloor, Conveyor, PalletizerArm,
@@ -39,6 +40,9 @@ export interface CellSceneProps {
   palletTag?: string;
   pallet?: PalletSpec;
   heightClass?: string;
+  /** cycle hold: placed cartons become draggable for live re-planning */
+  paused?: boolean;
+  onMoveBox?: (index: number, x_mm: number, y_mm: number, z_mm: number) => void;
 }
 
 const MMc = 1 / 1000;
@@ -70,17 +74,59 @@ function PalletDeck({ pallet, tag }: { pallet: PalletSpec; tag?: string }) {
   );
 }
 
-function PlacedBoxes({ boxes, placedCount }: { boxes: Placement[]; placedCount: number }) {
+function PlacedBoxes({ boxes, placedCount, pallet, paused, onMoveBox, setControlsEnabled }: {
+  boxes: Placement[]; placedCount: number; pallet: PalletSpec; paused: boolean;
+  onMoveBox?: (index: number, x_mm: number, y_mm: number, z_mm: number) => void;
+  setControlsEnabled: (v: boolean) => void;
+}) {
+  const dragging = useRef<number | null>(null);
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const hit = useMemo(() => new THREE.Vector3(), []);
+
+  const toMm = (wx: number, wz: number, p: Placement) => ({
+    x_mm: THREE.MathUtils.clamp((wx / MMc) + pallet.length_mm / 2 - p.length_mm / 2, 0, pallet.length_mm - p.length_mm),
+    y_mm: THREE.MathUtils.clamp((wz / MMc) + pallet.width_mm / 2 - p.width_mm / 2, 0, pallet.width_mm - p.width_mm),
+  });
+
+  const onDown = (i: number) => (e: ThreeEvent<PointerEvent>) => {
+    if (!paused || !onMoveBox) return;
+    e.stopPropagation();
+    dragging.current = i;
+    setControlsEnabled(false);
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  };
+  const onMove = (i: number) => (e: ThreeEvent<PointerEvent>) => {
+    if (dragging.current !== i || !onMoveBox) return;
+    e.stopPropagation();
+    e.ray.intersectPlane(plane, hit);
+    const p = boxes[i];
+    const { x_mm, y_mm } = toMm(hit.x, hit.z, p);
+    const z_mm = settleZ({ ...p, x_mm, y_mm }, i, boxes);
+    onMoveBox(i, x_mm, y_mm, z_mm);
+  };
+  const onUp = (i: number) => (e: ThreeEvent<PointerEvent>) => {
+    if (dragging.current !== i) return;
+    e.stopPropagation();
+    dragging.current = null;
+    setControlsEnabled(true);
+  };
+
   return (
     <group>
       {boxes.slice(0, placedCount).map((p, i) => {
-        const x = (p.x_mm + p.length_mm / 2 - DEFAULT_PALLET.length_mm / 2) * MMc;
-        const z = (p.y_mm + p.width_mm / 2 - DEFAULT_PALLET.width_mm / 2) * MMc;
+        const x = (p.x_mm + p.length_mm / 2 - pallet.length_mm / 2) * MMc;
+        const z = (p.y_mm + p.width_mm / 2 - pallet.width_mm / 2) * MMc;
         const y = (p.z_mm + p.height_mm / 2) * MMc + 0.145;
         return (
-          <mesh key={i} position={[x, y, z]} castShadow receiveShadow>
+          <mesh key={i} position={[x, y, z]} castShadow receiveShadow
+            onPointerDown={onDown(i)} onPointerMove={onMove(i)} onPointerUp={onUp(i)}>
             <boxGeometry args={[p.length_mm * MMc - 0.004, p.height_mm * MMc - 0.002, p.width_mm * MMc - 0.004]} />
-            <meshStandardMaterial color={CELL_LAYER_COLORS[p.layer % CELL_LAYER_COLORS.length]} roughness={0.75} />
+            <meshStandardMaterial
+              color={CELL_LAYER_COLORS[p.layer % CELL_LAYER_COLORS.length]}
+              roughness={0.75}
+              emissive={paused ? '#38bdf8' : '#000000'}
+              emissiveIntensity={paused ? 0.12 : 0}
+            />
           </mesh>
         );
       })}
@@ -115,7 +161,9 @@ function CameraRig({ preset, jump }: { preset: PresetKey; jump: number }) {
 export default function CellScene({
   boxes, activeIndex, progress, placedCount, state, gripperWear,
   palletTag, pallet = DEFAULT_PALLET, heightClass = 'h-[460px]',
+  paused = false, onMoveBox,
 }: CellSceneProps) {
+  const [controlsEnabled, setControlsEnabled] = useState(true);
   const [preset, setPreset] = useState<PresetKey>('overview');
   const [jump, setJump] = useState(0);
   const active = activeIndex >= 0 && activeIndex < boxes.length ? boxes[activeIndex] : null;
@@ -133,22 +181,28 @@ export default function CellScene({
         <CellFloor />
         <SafetyFence />
         <PalletDeck pallet={pallet} tag={palletTag} />
-        <PlacedBoxes boxes={boxes} placedCount={placedCount} />
-        <Conveyor pick={pickPosFor(armBaseFor(pallet))} activeBox={active} carrying={carrying} />
+        <PlacedBoxes boxes={boxes} placedCount={placedCount} pallet={pallet} paused={paused} onMoveBox={onMoveBox} setControlsEnabled={setControlsEnabled} />
+        <Conveyor
+          pick={pickPosFor(armBaseFor(pallet))}
+          activeBox={active}
+          carrying={carrying}
+          upcoming={boxes.slice(Math.max(activeIndex + 1, placedCount + 1), Math.max(activeIndex + 1, placedCount + 1) + 3)}
+          running={state === 'MOVING' && !paused}
+        />
         <PalletizerArm
           boxes={boxes}
           robot={{ activeIndex, progress, placedCount }}
           pallet={pallet}
           deckTop={0.145}
           gripperWear={gripperWear}
-          hold={state === 'EXCEPTION_HANDLING' || state === 'FAULT_ESTOP'}
+          hold={paused || state === 'EXCEPTION_HANDLING' || state === 'FAULT_ESTOP'}
         />
         <AndonTower status={ANDON_OF[state]} position={[armBaseFor(pallet).x + 1.0, 0, -1.7]} />
         <VlmCamera analyzing={state === 'EXCEPTION_HANDLING'} x={pickPosFor(armBaseFor(pallet)).x} z={pickPosFor(armBaseFor(pallet)).z} />
 
         <ContactShadows position={[0, -0.045, 0]} opacity={0.4} scale={10} blur={2.2} far={2.4} />
         <gridHelper args={[11, 44, '#1f2a3d', '#141d2e']} position={[0, -0.05, 0]} />
-        <OrbitControls target={PRESETS[preset].tgt.toArray()} maxPolarAngle={Math.PI / 2.05} minDistance={1.4} maxDistance={9} />
+        <OrbitControls enabled={controlsEnabled} target={PRESETS[preset].tgt.toArray()} maxPolarAngle={Math.PI / 2.05} minDistance={1.4} maxDistance={9} />
         <CameraRig preset={preset} jump={jump} />
       </Canvas>
 

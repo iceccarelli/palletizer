@@ -166,8 +166,32 @@ export function VlmCamera({ analyzing, x, z }: { analyzing: boolean; x: number; 
   );
 }
 
+function BeltSlats({ pick, beltLen, running }: { pick: THREE.Vector3; beltLen: number; running: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const off = useRef(0);
+  useFrame((_, dt) => {
+    if (running) off.current = (off.current + dt * 0.35) % 0.3;
+    if (group.current) {
+      group.current.children.forEach((c, i) => {
+        c.position.z = pick.z + 0.12 + ((i * 0.3 - off.current + beltLen) % beltLen);
+      });
+    }
+  });
+  const n = Math.floor(1.9 / 0.3);
+  return (
+    <group ref={group}>
+      {Array.from({ length: n }).map((_, i) => (
+        <mesh key={i} position={[pick.x, 0.392, pick.z + 0.12 + i * 0.3]} raycast={NORAY}>
+          <boxGeometry args={[0.5, 0.006, 0.05]} />
+          <meshStandardMaterial color="#0f172a" roughness={1} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /** Infeed conveyor aligned with the arm's pick station. */
-export function Conveyor({ pick, activeBox, carrying }: { pick: THREE.Vector3; activeBox: Placement | null; carrying: boolean }) {
+export function Conveyor({ pick, activeBox, carrying, upcoming = [], running = true }: { pick: THREE.Vector3; activeBox: Placement | null; carrying: boolean; upcoming?: Placement[]; running?: boolean }) {
   const beltLen = 1.9;
   const queue = useRef<number[]>([0.55, 1.1, 1.65]);
   const group = useRef<THREE.Group>(null);
@@ -204,13 +228,26 @@ export function Conveyor({ pick, activeBox, carrying }: { pick: THREE.Vector3; a
           ))}
         </group>
       ))}
+      {/* moving belt surface: dark slats translate toward the pick point */}
+      <BeltSlats pick={pick} beltLen={beltLen} running={running} />
+      {/* the REAL next cartons from the plan, correct dims and layer colors */}
       <group ref={group}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i} position={[pick.x, 0.47, pick.z + 0.55 + i * 0.55]} castShadow raycast={NORAY}>
-            <boxGeometry args={[0.32, 0.22, 0.36]} />
-            <meshStandardMaterial color="#a16207" roughness={0.9} />
-          </mesh>
-        ))}
+        {[0, 1, 2].map((i) => {
+          const b = upcoming[i];
+          return (
+            <mesh key={i} position={[pick.x, 0.47, pick.z + 0.55 + i * 0.55]} castShadow raycast={NORAY}>
+              <boxGeometry args={b
+                ? [b.length_mm / 1000, b.height_mm / 1000, b.width_mm / 1000]
+                : [0.32, 0.22, 0.36]} />
+              <meshStandardMaterial
+                color={b ? CELL_LAYER_COLORS[b.layer % CELL_LAYER_COLORS.length] : '#a16207'}
+                roughness={0.85}
+                transparent
+                opacity={b ? 0.95 : 0.35}
+              />
+            </mesh>
+          );
+        })}
       </group>
       {activeBox && !carrying && (
         <mesh position={[pick.x, 0.47, pick.z]} castShadow raycast={NORAY}>
@@ -335,6 +372,8 @@ export function PalletizerArm({
   });
 
   const wearColor = gripperWear > 0.8 ? '#ef4444' : gripperWear > 0.5 ? '#f59e0b' : '#10b981';
+  const gripScaleX = active ? THREE.MathUtils.clamp((active.length_mm / 1000) / 0.3, 0.7, 1.6) : 1;
+  const gripScaleZ = active ? THREE.MathUtils.clamp((active.width_mm / 1000) / 0.34, 0.7, 1.6) : 1;
 
   return (
     <group position={base.toArray()}>
@@ -372,16 +411,19 @@ export function PalletizerArm({
                     <cylinderGeometry args={[0.045, 0.045, 0.22, 14]} />
                     <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.4} />
                   </mesh>
-                  <mesh position={[0, -0.235, 0]} castShadow raycast={NORAY}>
-                    <boxGeometry args={[0.3, 0.035, 0.34]} />
-                    <meshStandardMaterial color="#0f172a" roughness={0.6} />
-                  </mesh>
-                  {[-0.1, 0.1].map((ox) => [-0.12, 0.12].map((oz) => (
-                    <mesh key={`${ox}${oz}`} position={[ox, -0.262, oz]} raycast={NORAY}>
-                      <cylinderGeometry args={[0.028, 0.034, 0.02, 12]} />
-                      <meshStandardMaterial color={wearColor} emissive={wearColor} emissiveIntensity={0.25} roughness={0.7} />
+                  {/* gripper adapts to the carton: plate + pad spread scale to its footprint */}
+                  <group scale={[gripScaleX, 1, gripScaleZ]}>
+                    <mesh position={[0, -0.235, 0]} castShadow raycast={NORAY}>
+                      <boxGeometry args={[0.3, 0.035, 0.34]} />
+                      <meshStandardMaterial color="#0f172a" roughness={0.6} />
                     </mesh>
-                  )))}
+                    {[-0.1, 0.1].map((ox) => [-0.12, 0.12].map((oz) => (
+                      <mesh key={`${ox}${oz}`} position={[ox, -0.262, oz]} raycast={NORAY}>
+                        <cylinderGeometry args={[0.028, 0.034, 0.02, 12]} />
+                        <meshStandardMaterial color={wearColor} emissive={wearColor} emissiveIntensity={0.25} roughness={0.7} />
+                      </mesh>
+                    )))}
+                  </group>
                   <group ref={carriedRef} position={[0, -0.272, 0]} visible={false}>
                     {active && (
                       <mesh position={[0, -(active.height_mm * MM) / 2, 0]} castShadow raycast={NORAY}>

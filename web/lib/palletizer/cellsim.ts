@@ -65,6 +65,7 @@ export interface CellScore {
   autonomyPlacements: number;
   faultsRecovered: number;
   services: number;
+  movedBoxes: number;
   bestStreak: number;
   uptimePct: number;
   throughputPerMin: number;
@@ -84,6 +85,8 @@ export interface CellSimState {
   orderQueue: CellOrder[];
   activeOrder: CellOrder | null;
   speedOverride: number;
+  /** cycle hold: dispatch/motion/VLM frozen, but the SHIFT CLOCK AND DEADLINES KEEP RUNNING */
+  paused: boolean;
   streak: number;
   multiplier: number;
   gripperWear: number; // 0..1
@@ -163,7 +166,7 @@ function freshScore(): CellScore {
   return {
     points: 0, palletsCompleted: 0, onTimeOrders: 0, lateOrders: 0, placementsDone: 0,
     vlmApplied: 0, vlmEscalated: 0, operatorOverrides: 0, reworks: 0,
-    autonomyPlacements: 0, faultsRecovered: 0, services: 0, bestStreak: 0,
+    autonomyPlacements: 0, faultsRecovered: 0, services: 0, movedBoxes: 0, bestStreak: 0,
     uptimePct: 100, throughputPerMin: 0,
   };
 }
@@ -174,7 +177,7 @@ export function createSetupState(): CellSimState {
     phase: 'setup', state: 'IDLE', plan: buildPlan(setup, 'beverage', 1), setup,
     queuedSetup: setup, setupQueued: false,
     orderQueue: [], activeOrder: null,
-    speedOverride: 1.0, streak: 0, multiplier: 1, gripperWear: 0, maintenance: 0,
+    speedOverride: 1.0, paused: false, streak: 0, multiplier: 1, gripperWear: 0, maintenance: 0,
     activeIndex: -1, progress: 0, placedCount: 0,
     heartbeat: 0, heartbeatStalled: false, cloudConnected: true,
     vlmRollTimer: 0, heldFrame: null, organicRolled: false,
@@ -260,6 +263,37 @@ export function actionServiceGripper(s: CellSimState): CellSimState {
   if (s.maintenance > 0 || s.state === 'FAULT_ESTOP' || s.state === 'EXCEPTION_HANDLING') return s;
   const n: CellSimState = { ...s, maintenance: SERVICE_TIME_S, state: 'IDLE', activeIndex: s.activeIndex, score: { ...s.score, services: s.score.services + 1 } };
   pushEvent(n, 'operator', `Gripper service started — ${SERVICE_TIME_S}s downtime, wear ${(s.gripperWear * 100).toFixed(0)}% -> 0%`);
+  return n;
+}
+
+/** Cycle hold — the operator's PAUSE. Honest cost: the shift clock and
+ *  order deadlines keep running while nothing ships. */
+export function actionPause(s: CellSimState): CellSimState {
+  if (s.paused || s.state === 'FAULT_ESTOP') return s;
+  const n = { ...s, paused: true };
+  pushEvent(n, 'operator', 'CYCLE HOLD — dispatch frozen. Drag placed cartons to re-plan; deadlines keep counting.');
+  return n;
+}
+
+export function actionResume(s: CellSimState): CellSimState {
+  if (!s.paused) return s;
+  const n = { ...s, paused: false };
+  pushEvent(n, 'operator', 'Cycle resumed — remaining picks re-target the edited plan');
+  return n;
+}
+
+/** Operator drags a carton while paused. The plan is the single source of
+ *  truth, so the arm's remaining picks re-target automatically. */
+export function actionMoveBox(s: CellSimState, index: number, x_mm: number, y_mm: number, z_mm: number): CellSimState {
+  if (!s.paused || index < 0 || index >= s.plan.boxes.length) return s;
+  const boxes = s.plan.boxes.map((b, i) => (i === index ? { ...b, x_mm, y_mm, z_mm } : b));
+  const n: CellSimState = {
+    ...s,
+    plan: { ...s.plan, boxes },
+    score: { ...s.score, movedBoxes: s.score.movedBoxes + 1 },
+  };
+  const b = boxes[index];
+  pushEvent(n, 'operator', `${b.sku_id ?? 'Carton'} repositioned to (${Math.round(x_mm)}, ${Math.round(y_mm)}, ${Math.round(z_mm)}) mm — robot code follows the plan`);
   return n;
 }
 
@@ -367,6 +401,11 @@ export function tickCellSim(prev: CellSimState, dt: number, seedRef: { seed: num
 
   if (s.state === 'FAULT_ESTOP') {
     s.faultTime += dt;
+    return finalize();
+  }
+
+  // Cycle hold: everything watches, nothing moves. Shift + deadlines burn.
+  if (s.paused) {
     return finalize();
   }
 
