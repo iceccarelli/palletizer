@@ -29,6 +29,15 @@ import {
   useLivePlan,
 } from './shared';
 import type { SettleResult } from './PhysicsSettleScene';
+import type { AndonStatus } from './IndustrialCell';
+
+/** Universal status lamp: validation state -> andon color, same on every demo. */
+function andonFor(v: { is_stable?: boolean; per_box?: { status: string }[] } | null | undefined): AndonStatus {
+  if (!v) return 'ok';
+  if (v.is_stable === false) return 'bad';
+  if (v.per_box?.some((b) => b.status === 'warn' || b.status === 'critical')) return 'warn';
+  return 'ok';
+}
 import type { RobotAnim } from './InteractivePalletScene';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +145,7 @@ export function DemoProduction() {
               <HintChip show={!live.edited}>👆 Grab any box — colors and scores react live</HintChip>
               <Scene
                 boxes={live.plan.boxes}
+                andonStatus={andonFor(live.validation)}
                 perBox={live.validation?.per_box}
                 selectedIndex={live.selected}
                 onSelect={live.setSelected}
@@ -229,6 +239,7 @@ export function DemoEcomm() {
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene
             boxes={live.plan.boxes}
+            andonStatus={andonFor(live.validation)}
             perBox={live.validation?.per_box}
             selectedIndex={live.selected}
             onSelect={live.setSelected}
@@ -358,6 +369,7 @@ export function DemoStress() {
           {settling ? (
             <SettleScene
               boxes={live.plan.boxes}
+              andonStatus={settling ? 'busy' : settleResult ? (settleResult.toppled_count > 0 ? 'bad' : settleResult.max_displacement_mm > 25 ? 'warn' : 'ok') : 'busy'}
               durationS={4}
               onResult={(r) => {
                 setSettleResult(r);
@@ -367,6 +379,7 @@ export function DemoStress() {
           ) : (
             <Scene
               boxes={live.plan.boxes}
+              andonStatus={andonFor(live.validation)}
               perBox={live.validation?.per_box}
               selectedIndex={live.selected}
               onSelect={live.setSelected}
@@ -523,6 +536,7 @@ export function DemoMultiPallet() {
             <div className="glass rounded-3xl border border-white/10 overflow-hidden">
               <Scene
                 boxes={p.plan.boxes}
+                andonStatus={andonFor(p.validation)}
                 perBox={p.validation.per_box}
                 selectedIndex={sel?.pallet === pi ? sel.index : null}
                 onSelect={(i) => setSel(i === null ? null : { pallet: pi, index: i })}
@@ -654,6 +668,7 @@ export function DemoRobot() {
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene
             boxes={live.plan.boxes}
+            andonStatus={playing ? 'busy' : andonFor(live.validation)}
             perBox={live.validation?.per_box}
             selectedIndex={live.selected}
             onSelect={live.setSelected}
@@ -813,6 +828,7 @@ export function DemoTwin() {
         <div className="lg:col-span-7 glass rounded-3xl border border-white/10 overflow-hidden">
           <Scene
             boxes={live.plan.boxes}
+            andonStatus={andonFor(live.validation)}
             perBox={live.validation?.per_box}
             selectedIndex={live.selected}
             onSelect={live.setSelected}

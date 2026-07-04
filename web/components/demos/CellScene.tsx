@@ -22,17 +22,12 @@ import { ContactShadows, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DEFAULT_PALLET, PalletSpec, Placement } from '@/lib/palletizer/types';
 import type { EdgeState } from '@/lib/palletizer/cellsim';
+import {
+  AndonStatus, AndonTower, CELL_LAYER_COLORS, CellFloor, Conveyor, PalletizerArm,
+  SafetyFence, VlmCamera, armBaseFor, pickPosFor,
+} from './IndustrialCell';
 
-const MM = 1 / 1000;
-const LAYER_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
 
-// Cell layout (meters, pallet center at origin)
-const ROBOT_BASE = new THREE.Vector3(1.15, 0, -0.55);
-const SHOULDER_H = 0.62;
-const LINK1 = 1.05;
-const LINK2 = 1.05;
-const PICK_POS = new THREE.Vector3(1.15, 0.47, 0.75); // top of the conveyor end
-const SAFE_H = 1.05;
 
 export interface CellSceneProps {
   boxes: Placement[];
@@ -46,383 +41,14 @@ export interface CellSceneProps {
   heightClass?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Path + IK
-// ---------------------------------------------------------------------------
-function boxTopTarget(p: Placement): THREE.Vector3 {
-  return new THREE.Vector3(
-    (p.x_mm + p.length_mm / 2 - DEFAULT_PALLET.length_mm / 2) * MM,
-    (p.z_mm + p.height_mm) * MM + 0.145, // pallet deck offset
-    (p.y_mm + p.width_mm / 2 - DEFAULT_PALLET.width_mm / 2) * MM,
-  );
-}
-
-const easeInOut = (t: number) => t * t * (3 - 2 * t);
-
-/** TCP position along the pick -> lift -> traverse -> lower -> release path. */
-function tcpOnPath(progress: number, place: THREE.Vector3): { tcp: THREE.Vector3; carrying: boolean } {
-  const pickUp = PICK_POS.clone().setY(SAFE_H);
-  const placeUp = place.clone().setY(Math.max(SAFE_H, place.y + 0.15));
-  if (progress < 0.18) {
-    // descend to the carton and grip
-    const t = easeInOut(progress / 0.18);
-    return { tcp: pickUp.clone().lerp(PICK_POS, t), carrying: false };
-  }
-  if (progress < 0.32) {
-    const t = easeInOut((progress - 0.18) / 0.14);
-    return { tcp: PICK_POS.clone().lerp(pickUp, t), carrying: true };
-  }
-  if (progress < 0.72) {
-    const t = easeInOut((progress - 0.32) / 0.4);
-    return { tcp: pickUp.clone().lerp(placeUp, t), carrying: true };
-  }
-  if (progress < 0.94) {
-    const t = easeInOut((progress - 0.72) / 0.22);
-    return { tcp: placeUp.clone().lerp(place, t), carrying: true };
-  }
-  const t = easeInOut((progress - 0.94) / 0.06);
-  return { tcp: place.clone().lerp(placeUp, t * 0.4), carrying: false };
-}
-
-/** Analytic 2-link planar IK in the vertical plane through the base yaw. */
-function solveArm(tcp: THREE.Vector3) {
-  const dx = tcp.x - ROBOT_BASE.x;
-  const dz = tcp.z - ROBOT_BASE.z;
-  const yaw = Math.atan2(dx, dz); // rotate base so +Z of the arm points at the target
-  const wristDrop = 0.22; // wrist assembly length below the elbow-link tip
-  const r = Math.max(0.25, Math.hypot(dx, dz));
-  const h = tcp.y + wristDrop - SHOULDER_H;
-  const d = Math.min(Math.hypot(r, h), LINK1 + LINK2 - 0.02);
-  const a1 = Math.atan2(h, r);
-  const cosElbow = (LINK1 * LINK1 + LINK2 * LINK2 - d * d) / (2 * LINK1 * LINK2);
-  const elbowInner = Math.acos(THREE.MathUtils.clamp(cosElbow, -1, 1));
-  const cosShoulder = (LINK1 * LINK1 + d * d - LINK2 * LINK2) / (2 * LINK1 * d);
-  const shoulder = a1 + Math.acos(THREE.MathUtils.clamp(cosShoulder, -1, 1)); // elbow-up
-  const elbow = elbowInner - Math.PI; // interior -> joint angle
-  return { yaw, shoulder, elbow };
-}
-
-// ---------------------------------------------------------------------------
-// Environment pieces
-// ---------------------------------------------------------------------------
-function Floor() {
-  const stripes = useMemo(() => {
-    const arr: { x: number; z: number; rot: number; len: number }[] = [];
-    const L = 5.6;
-    for (let i = -6; i <= 6; i++) {
-      arr.push({ x: i * 0.45, z: -2.8, rot: Math.PI / 4, len: 0.5 });
-      arr.push({ x: i * 0.45, z: 2.8, rot: Math.PI / 4, len: 0.5 });
-    }
-    for (let i = -6; i <= 6; i++) {
-      arr.push({ x: -2.8, z: i * 0.45, rot: -Math.PI / 4, len: 0.5 });
-      arr.push({ x: 2.8, z: i * 0.45, rot: -Math.PI / 4, len: 0.5 });
-    }
-    void L;
-    return arr;
-  }, []);
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.051, 0]} receiveShadow>
-        <planeGeometry args={[12, 12]} />
-        <meshStandardMaterial color="#0b1120" roughness={0.95} />
-      </mesh>
-      {/* hazard striping marking the cell boundary */}
-      {stripes.map((s, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, s.rot]} position={[s.x, -0.049, s.z]}>
-          <planeGeometry args={[0.05, s.len]} />
-          <meshBasicMaterial color="#f59e0b" transparent opacity={0.35} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function SafetyFence() {
-  const posts: [number, number][] = [
-    [-2.8, -2.8], [-1.4, -2.8], [0, -2.8], [1.4, -2.8], [2.8, -2.8],
-    [-2.8, -1.4], [-2.8, 0], [-2.8, 1.4], [-2.8, 2.8],
-    [2.8, -1.4], [2.8, 0],
-  ];
-  return (
-    <group>
-      {posts.map(([x, z], i) => (
-        <mesh key={i} position={[x, 0.5, z]} castShadow>
-          <boxGeometry args={[0.06, 1.1, 0.06]} />
-          <meshStandardMaterial color="#facc15" roughness={0.6} />
-        </mesh>
-      ))}
-      {/* mesh panels: back and left runs */}
-      <mesh position={[0, 0.55, -2.8]}>
-        <planeGeometry args={[5.6, 1.0]} />
-        <meshStandardMaterial color="#94a3b8" transparent opacity={0.09} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[-2.8, 0.55, 0]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[5.6, 1.0]} />
-        <meshStandardMaterial color="#94a3b8" transparent opacity={0.09} side={THREE.DoubleSide} />
-      </mesh>
-    </group>
-  );
-}
-
-/** Andon stack light — the cell's state machine, physically. */
-function AndonTower({ state }: { state: EdgeState }) {
-  const order: { st: EdgeState; color: string }[] = [
-    { st: 'FAULT_ESTOP', color: '#ef4444' },
-    { st: 'EXCEPTION_HANDLING', color: '#f59e0b' },
-    { st: 'MOVING', color: '#38bdf8' },
-    { st: 'IDLE', color: '#34d399' },
-  ];
-  const pulse = useRef(0);
-  const mats = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
-  useFrame((_, dt) => {
-    pulse.current += dt * 4;
-    order.forEach((o, i) => {
-      const m = mats.current[i];
-      if (!m) return;
-      const on = o.st === state;
-      const target = on ? 0.85 + Math.sin(pulse.current) * 0.35 : 0.03;
-      m.emissiveIntensity = THREE.MathUtils.lerp(m.emissiveIntensity, target, 0.2);
-    });
-  });
-  return (
-    <group position={[2.15, 0, -1.7]}>
-      <mesh position={[0, 0.7, 0]} castShadow>
-        <cylinderGeometry args={[0.025, 0.025, 1.4, 12]} />
-        <meshStandardMaterial color="#334155" />
-      </mesh>
-      {order.map((o, i) => (
-        <mesh key={o.st} position={[0, 1.48 + i * 0.11, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 0.1, 20]} />
-          <meshStandardMaterial
-            ref={(m) => { mats.current[i] = m as THREE.MeshStandardMaterial; }}
-            color={o.color} emissive={o.color} emissiveIntensity={0.03}
-            transparent opacity={0.92}
-          />
-        </mesh>
-      ))}
-      <mesh position={[0, 1.95, 0]}>
-        <cylinderGeometry args={[0.065, 0.065, 0.03, 20]} />
-        <meshStandardMaterial color="#1e293b" />
-      </mesh>
-    </group>
-  );
-}
-
-/** VLM camera over the pick station. Cone flares amber while analyzing. */
-function VlmCamera({ analyzing }: { analyzing: boolean }) {
-  const mat = useRef<THREE.MeshBasicMaterial>(null);
-  useFrame(({ clock }) => {
-    if (!mat.current) return;
-    const target = analyzing ? 0.22 + Math.sin(clock.elapsedTime * 8) * 0.1 : 0.05;
-    mat.current.opacity = THREE.MathUtils.lerp(mat.current.opacity, target, 0.2);
-    mat.current.color.set(analyzing ? '#f59e0b' : '#38bdf8');
-  });
-  return (
-    <group position={[PICK_POS.x, 1.7, PICK_POS.z]}>
-      <mesh castShadow>
-        <boxGeometry args={[0.14, 0.09, 0.16]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.4} metalness={0.5} />
-      </mesh>
-      <mesh position={[0, -0.62, 0]}>
-        <coneGeometry args={[0.42, 1.15, 24, 1, true]} />
-        <meshBasicMaterial ref={mat} transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-      <Html position={[0.12, 0.1, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="text-[8px] font-mono text-white/40 bg-black/50 px-1 py-0.5 rounded">VLM CAM</div>
-      </Html>
-    </group>
-  );
-}
-
-/** Infeed conveyor with queued cartons sliding toward the pick point. */
-function Conveyor({ placedCount, activeBox, carrying }: { placedCount: number; activeBox: Placement | null; carrying: boolean }) {
-  const beltLen = 1.9;
-  const dir = new THREE.Vector3(0, 0, 1);
-  const start = PICK_POS.clone().add(dir.clone().multiplyScalar(beltLen)).setY(0);
-  const queue = useRef<number[]>([0.55, 1.1, 1.65]); // distances behind the pick point
-  const group = useRef<THREE.Group>(null);
-  useFrame((_, dt) => {
-    // cartons creep forward; the front one refills to the back on each pick
-    for (let i = 0; i < queue.current.length; i++) {
-      const target = 0.45 + i * 0.55;
-      queue.current[i] = THREE.MathUtils.lerp(queue.current[i], target, dt * 2.2);
-    }
-    void placedCount;
-    if (group.current) {
-      group.current.children.forEach((c, i) => {
-        if (queue.current[i] !== undefined) {
-          c.position.z = PICK_POS.z + queue.current[i];
-        }
-      });
-    }
-  });
-  return (
-    <group>
-      {/* belt frame */}
-      <mesh position={[PICK_POS.x, 0.36, PICK_POS.z + beltLen / 2]} castShadow receiveShadow>
-        <boxGeometry args={[0.52, 0.06, beltLen + 0.3]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.85} />
-      </mesh>
-      {[-0.28, 0.28].map((ox) => (
-        <mesh key={ox} position={[PICK_POS.x + ox, 0.41, PICK_POS.z + beltLen / 2]}>
-          <boxGeometry args={[0.035, 0.09, beltLen + 0.3]} />
-          <meshStandardMaterial color="#475569" metalness={0.4} roughness={0.5} />
-        </mesh>
-      ))}
-      {/* legs */}
-      {[0.15, beltLen - 0.1].map((oz) => (
-        <group key={oz}>
-          {[-0.2, 0.2].map((ox) => (
-            <mesh key={ox} position={[PICK_POS.x + ox, 0.17, PICK_POS.z + oz]}>
-              <boxGeometry args={[0.05, 0.34, 0.05]} />
-              <meshStandardMaterial color="#334155" />
-            </mesh>
-          ))}
-        </group>
-      ))}
-      {/* queued cartons */}
-      <group ref={group}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i} position={[PICK_POS.x, 0.47, start.z]} castShadow>
-            <boxGeometry args={[0.32, 0.22, 0.36]} />
-            <meshStandardMaterial color="#a16207" roughness={0.9} />
-          </mesh>
-        ))}
-      </group>
-      {/* the carton waiting at the pick point (hidden once carried) */}
-      {activeBox && !carrying && (
-        <mesh position={[PICK_POS.x, 0.47, PICK_POS.z]} castShadow>
-          <boxGeometry args={[activeBox.length_mm * MM, activeBox.height_mm * MM, activeBox.width_mm * MM]} />
-          <meshStandardMaterial color={LAYER_COLORS[activeBox.layer % LAYER_COLORS.length]} roughness={0.75} />
-        </mesh>
-      )}
-      <Html position={[PICK_POS.x + 0.45, 0.6, PICK_POS.z]} style={{ pointerEvents: 'none' }}>
-        <div className="text-[8px] font-mono text-white/40 bg-black/50 px-1 py-0.5 rounded">INFEED</div>
-      </Html>
-    </group>
-  );
-}
-
-/** The 4-axis palletizer arm. Pose fully derived from the sim each frame. */
-function PalletizerArm({ boxes, activeIndex, progress, state, gripperWear }: {
-  boxes: Placement[]; activeIndex: number; progress: number; state: EdgeState; gripperWear: number;
-}) {
-  const yawRef = useRef<THREE.Group>(null);
-  const shoulderRef = useRef<THREE.Group>(null);
-  const elbowRef = useRef<THREE.Group>(null);
-  const wristRef = useRef<THREE.Group>(null);
-  const carriedRef = useRef<THREE.Group>(null);
-  const smooth = useRef({ yaw: 0, shoulder: 0.6, elbow: -1.2, tcp: PICK_POS.clone().setY(SAFE_H), carrying: false });
-
-  const active = activeIndex >= 0 && activeIndex < boxes.length ? boxes[activeIndex] : null;
-
-  useFrame((_, dt) => {
-    const s = smooth.current;
-    let target = PICK_POS.clone().setY(SAFE_H);
-    let carrying = false;
-    if (active) {
-      const res = tcpOnPath(THREE.MathUtils.clamp(progress, 0, 1), boxTopTarget(active));
-      target = res.tcp;
-      carrying = res.carrying;
-    }
-    // EXCEPTION/FAULT: hold pose — no interpolation toward new targets.
-    const hold = state === 'EXCEPTION_HANDLING' || state === 'FAULT_ESTOP';
-    const k = hold ? 0 : Math.min(1, dt * 10);
-    s.tcp.lerp(target, k);
-    s.carrying = carrying;
-
-    const ik = solveArm(s.tcp);
-    s.yaw = THREE.MathUtils.lerp(s.yaw, ik.yaw, Math.min(1, dt * 8));
-    s.shoulder = THREE.MathUtils.lerp(s.shoulder, ik.shoulder, Math.min(1, dt * 8));
-    s.elbow = THREE.MathUtils.lerp(s.elbow, ik.elbow, Math.min(1, dt * 8));
-
-    if (yawRef.current) yawRef.current.rotation.y = s.yaw;
-    if (shoulderRef.current) shoulderRef.current.rotation.x = -s.shoulder;
-    if (elbowRef.current) elbowRef.current.rotation.x = -s.elbow;
-    if (wristRef.current) {
-      // keep the gripper level regardless of link angles
-      wristRef.current.rotation.x = s.shoulder + s.elbow;
-    }
-    if (carriedRef.current) carriedRef.current.visible = s.carrying && !!active;
-  });
-
-  const wearColor = gripperWear > 0.8 ? '#ef4444' : gripperWear > 0.5 ? '#f59e0b' : '#10b981';
-
-  return (
-    <group position={ROBOT_BASE.toArray()}>
-      {/* pedestal */}
-      <mesh position={[0, 0.09, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.34, 0.4, 0.18, 28]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.7} metalness={0.3} />
-      </mesh>
-      <group ref={yawRef}>
-        {/* base column */}
-        <mesh position={[0, 0.38, 0]} castShadow>
-          <cylinderGeometry args={[0.19, 0.24, 0.48, 24]} />
-          <meshStandardMaterial color="#ea580c" roughness={0.45} metalness={0.25} />
-        </mesh>
-        {/* shoulder housing */}
-        <mesh position={[0, SHOULDER_H, 0]} castShadow>
-          <sphereGeometry args={[0.16, 20, 16]} />
-          <meshStandardMaterial color="#1e293b" roughness={0.5} metalness={0.4} />
-        </mesh>
-        <group position={[0, SHOULDER_H, 0]} ref={shoulderRef}>
-          {/* upper link along +Z */}
-          <mesh position={[0, 0, LINK1 / 2]} castShadow>
-            <boxGeometry args={[0.16, 0.2, LINK1]} />
-            <meshStandardMaterial color="#ea580c" roughness={0.45} metalness={0.25} />
-          </mesh>
-          <group position={[0, 0, LINK1]}>
-            <mesh castShadow>
-              <sphereGeometry args={[0.12, 20, 16]} />
-              <meshStandardMaterial color="#1e293b" roughness={0.5} metalness={0.4} />
-            </mesh>
-            <group ref={elbowRef}>
-              {/* forearm link */}
-              <mesh position={[0, 0, LINK2 / 2]} castShadow>
-                <boxGeometry args={[0.12, 0.15, LINK2]} />
-                <meshStandardMaterial color="#ea580c" roughness={0.45} metalness={0.25} />
-              </mesh>
-              <group position={[0, 0, LINK2]}>
-                <group ref={wristRef}>
-                  {/* vertical wrist + vacuum gripper plate */}
-                  <mesh position={[0, -0.11, 0]} castShadow>
-                    <cylinderGeometry args={[0.045, 0.045, 0.22, 14]} />
-                    <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.4} />
-                  </mesh>
-                  <mesh position={[0, -0.235, 0]} castShadow>
-                    <boxGeometry args={[0.3, 0.035, 0.34]} />
-                    <meshStandardMaterial color="#0f172a" roughness={0.6} />
-                  </mesh>
-                  {/* suction pads — tinted by gripper wear */}
-                  {[-0.1, 0.1].map((ox) => [-0.12, 0.12].map((oz) => (
-                    <mesh key={`${ox}${oz}`} position={[ox, -0.262, oz]}>
-                      <cylinderGeometry args={[0.028, 0.034, 0.02, 12]} />
-                      <meshStandardMaterial color={wearColor} emissive={wearColor} emissiveIntensity={0.25} roughness={0.7} />
-                    </mesh>
-                  )))}
-                  {/* the carried carton, attached under the pads */}
-                  <group ref={carriedRef} position={[0, -0.272, 0]} visible={false}>
-                    {active && (
-                      <mesh position={[0, -(active.height_mm * MM) / 2, 0]} castShadow>
-                        <boxGeometry args={[active.length_mm * MM, active.height_mm * MM, active.width_mm * MM]} />
-                        <meshStandardMaterial color={LAYER_COLORS[active.layer % LAYER_COLORS.length]} roughness={0.7} />
-                      </mesh>
-                    )}
-                  </group>
-                </group>
-              </group>
-            </group>
-          </group>
-        </group>
-      </group>
-    </group>
-  );
-}
+const MMc = 1 / 1000;
+const ANDON_OF: Record<EdgeState, AndonStatus> = {
+  IDLE: 'ok', MOVING: 'busy', EXCEPTION_HANDLING: 'warn', FAULT_ESTOP: 'bad',
+};
 
 function PalletDeck({ pallet, tag }: { pallet: PalletSpec; tag?: string }) {
-  const L = pallet.length_mm * MM;
-  const W = pallet.width_mm * MM;
+  const L = pallet.length_mm * MMc;
+  const W = pallet.width_mm * MMc;
   return (
     <group>
       <mesh position={[0, 0.07, 0]} castShadow receiveShadow>
@@ -448,13 +74,13 @@ function PlacedBoxes({ boxes, placedCount }: { boxes: Placement[]; placedCount: 
   return (
     <group>
       {boxes.slice(0, placedCount).map((p, i) => {
-        const x = (p.x_mm + p.length_mm / 2 - DEFAULT_PALLET.length_mm / 2) * MM;
-        const z = (p.y_mm + p.width_mm / 2 - DEFAULT_PALLET.width_mm / 2) * MM;
-        const y = (p.z_mm + p.height_mm / 2) * MM + 0.145;
+        const x = (p.x_mm + p.length_mm / 2 - DEFAULT_PALLET.length_mm / 2) * MMc;
+        const z = (p.y_mm + p.width_mm / 2 - DEFAULT_PALLET.width_mm / 2) * MMc;
+        const y = (p.z_mm + p.height_mm / 2) * MMc + 0.145;
         return (
           <mesh key={i} position={[x, y, z]} castShadow receiveShadow>
-            <boxGeometry args={[p.length_mm * MM - 0.004, p.height_mm * MM - 0.002, p.width_mm * MM - 0.004]} />
-            <meshStandardMaterial color={LAYER_COLORS[p.layer % LAYER_COLORS.length]} roughness={0.75} />
+            <boxGeometry args={[p.length_mm * MMc - 0.004, p.height_mm * MMc - 0.002, p.width_mm * MMc - 0.004]} />
+            <meshStandardMaterial color={CELL_LAYER_COLORS[p.layer % CELL_LAYER_COLORS.length]} roughness={0.75} />
           </mesh>
         );
       })}
@@ -504,14 +130,21 @@ export default function CellScene({
         <pointLight position={[-4, 3, -4]} intensity={0.3} />
         <pointLight position={[2.2, 2.4, 1.8]} intensity={0.35} color="#93c5fd" />
 
-        <Floor />
+        <CellFloor />
         <SafetyFence />
         <PalletDeck pallet={pallet} tag={palletTag} />
         <PlacedBoxes boxes={boxes} placedCount={placedCount} />
-        <Conveyor placedCount={placedCount} activeBox={active} carrying={carrying} />
-        <PalletizerArm boxes={boxes} activeIndex={activeIndex} progress={progress} state={state} gripperWear={gripperWear} />
-        <AndonTower state={state} />
-        <VlmCamera analyzing={state === 'EXCEPTION_HANDLING'} />
+        <Conveyor pick={pickPosFor(armBaseFor(pallet))} activeBox={active} carrying={carrying} />
+        <PalletizerArm
+          boxes={boxes}
+          robot={{ activeIndex, progress, placedCount }}
+          pallet={pallet}
+          deckTop={0.145}
+          gripperWear={gripperWear}
+          hold={state === 'EXCEPTION_HANDLING' || state === 'FAULT_ESTOP'}
+        />
+        <AndonTower status={ANDON_OF[state]} position={[armBaseFor(pallet).x + 1.0, 0, -1.7]} />
+        <VlmCamera analyzing={state === 'EXCEPTION_HANDLING'} x={pickPosFor(armBaseFor(pallet)).x} z={pickPosFor(armBaseFor(pallet)).z} />
 
         <ContactShadows position={[0, -0.045, 0]} opacity={0.4} scale={10} blur={2.2} far={2.4} />
         <gridHelper args={[11, 44, '#1f2a3d', '#141d2e']} position={[0, -0.05, 0]} />

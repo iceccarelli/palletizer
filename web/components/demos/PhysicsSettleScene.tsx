@@ -12,6 +12,7 @@
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { AndonStatus, AndonTower, CellFloor, SafetyFence } from './IndustrialCell';
 import { OrbitControls } from '@react-three/drei';
 import { Physics, RapierRigidBody, RigidBody } from '@react-three/rapier';
 import { DEFAULT_PALLET, PalletSpec, Placement } from '@/lib/palletizer/types';
@@ -122,18 +123,24 @@ export default function PhysicsSettleScene({
   durationS = 4,
   onResult,
   heightClass = 'h-[460px]',
+  andonStatus = 'busy',
 }: {
   boxes: Placement[];
   pallet?: PalletSpec;
   durationS?: number;
   onResult: (r: SettleResult) => void;
   heightClass?: string;
+  andonStatus?: AndonStatus;
 }) {
   return (
     <div className={`relative w-full ${heightClass}`}>
       <Canvas shadows camera={{ position: [2.6, 2.1, 2.8], fov: 42 }} style={{ background: '#0a0f1a' }}>
         <ambientLight intensity={0.55} />
         <directionalLight position={[5, 10, 5]} intensity={1.1} castShadow />
+        <fog attach="fog" args={['#0a0f1a', 9, 16]} />
+        <CellFloor />
+        <SafetyFence />
+        <AndonTower status={andonStatus} position={[pallet.length_mm / 1000 / 2 + 1.54, 0, -1.7]} />
         <Physics gravity={[0, -9.81, 0]} timeStep={1 / 60}>
           <SettleBodies boxes={boxes} pallet={pallet} durationS={durationS} onResult={onResult} />
         </Physics>

@@ -13,6 +13,7 @@ import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber';
 import { ContactShadows, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { BoxStability, CoG, DEFAULT_PALLET, PalletSpec, Placement } from '@/lib/palletizer/types';
+import { AndonStatus, AndonTower, CellFloor, Conveyor, PalletizerArm, SafetyFence, armBaseFor, pickPosFor } from './IndustrialCell';
 
 const MM = 1 / 1000;
 
@@ -51,6 +52,10 @@ interface Props {
   originXm?: number;
   labelAll?: boolean;
   paletteTag?: string;
+  /** universal status lamp: green ok, blue busy, amber warn, red bad */
+  andonStatus?: AndonStatus | null;
+  /** render the shared plant environment (floor striping, fencing) */
+  environment?: boolean;
 }
 
 const LAYER_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -279,118 +284,6 @@ function CogMarker({ cog, pallet, originXm }: { cog: CoG; pallet: PalletSpec; or
 }
 
 /** Simplified pedestal robot: base + rotating boom + vertical mast + gripper, tracking the active box. */
-function RobotArm({
-  boxes,
-  robot,
-  pallet,
-  originXm,
-}: {
-  boxes: Placement[];
-  robot: RobotAnim;
-  pallet: PalletSpec;
-  originXm: number;
-}) {
-  const boomRef = useRef<THREE.Group>(null);
-  const mastRef = useRef<THREE.Group>(null);
-  const carryRef = useRef<THREE.Group>(null);
-
-  const baseX = pallet.length_mm * MM * 0.5 + 0.55 + originXm;
-  const pickPos = useMemo(() => new THREE.Vector3(baseX + 0.05, 0.35, -0.9), [baseX]);
-
-  useFrame(() => {
-    const i = robot.activeIndex;
-    if (i < 0 || i >= boxes.length) return;
-    const b = boxes[i];
-    const target = new THREE.Vector3(
-      (b.x_mm + b.length_mm / 2) * MM - pallet.length_mm * MM * 0.5 + originXm,
-      (b.z_mm + b.height_mm / 2) * MM + 0.05,
-      (b.y_mm + b.width_mm / 2) * MM - pallet.width_mm * MM * 0.5,
-    );
-    const t = robot.progress;
-    // pick -> lift -> traverse arc -> lower
-    const lift = 1.35;
-    const cur = new THREE.Vector3();
-    if (t < 0.25) {
-      const k = t / 0.25;
-      cur.set(pickPos.x, pickPos.y + (lift - pickPos.y) * k, pickPos.z);
-    } else if (t < 0.75) {
-      const k = (t - 0.25) / 0.5;
-      cur.set(
-        pickPos.x + (target.x - pickPos.x) * k,
-        lift + Math.sin(k * Math.PI) * 0.12,
-        pickPos.z + (target.z - pickPos.z) * k,
-      );
-    } else {
-      const k = (t - 0.75) / 0.25;
-      cur.set(target.x, lift + (target.y - lift) * k, target.z);
-    }
-
-    if (carryRef.current) {
-      carryRef.current.position.copy(cur);
-      carryRef.current.visible = true;
-    }
-    if (boomRef.current) {
-      boomRef.current.rotation.y = Math.atan2(-(cur.z - 0), -(cur.x - baseX));
-    }
-    if (mastRef.current) {
-      const reach = Math.hypot(cur.x - baseX, cur.z);
-      mastRef.current.position.x = -Math.min(Math.max(reach, 0.3), 1.9);
-      mastRef.current.position.y = cur.y + 0.1;
-    }
-  });
-
-  const active = robot.activeIndex >= 0 && robot.activeIndex < boxes.length ? boxes[robot.activeIndex] : null;
-
-  return (
-    <group>
-      {/* pedestal */}
-      <mesh position={[baseX, 0.5, 0]} castShadow>
-        <cylinderGeometry args={[0.11, 0.16, 1.0, 20]} />
-        <meshStandardMaterial color="#334155" roughness={0.4} metalness={0.6} />
-      </mesh>
-      <mesh position={[baseX, 1.55, 0]}>
-        <cylinderGeometry args={[0.09, 0.09, 1.1, 16]} />
-        <meshStandardMaterial color="#475569" roughness={0.4} metalness={0.6} />
-      </mesh>
-      {/* boom rotates about the pedestal */}
-      <group position={[baseX, 2.05, 0]} ref={boomRef}>
-        <mesh position={[-1.0, 0, 0]}>
-          <boxGeometry args={[2.2, 0.12, 0.14]} />
-          <meshStandardMaterial color="#f59e0b" roughness={0.5} metalness={0.3} />
-        </mesh>
-        {/* vertical mast slides along boom */}
-        <group ref={mastRef} position={[-1.0, -0.4, 0]}>
-          <mesh>
-            <boxGeometry args={[0.07, 0.9, 0.07]} />
-            <meshStandardMaterial color="#94a3b8" metalness={0.7} roughness={0.3} />
-          </mesh>
-        </group>
-      </group>
-      {/* carried box + gripper */}
-      <group ref={carryRef} visible={false}>
-        <mesh position={[0, active ? active.height_mm * MM * 0.5 + 0.03 : 0.1, 0]}>
-          <boxGeometry args={[0.24, 0.05, 0.18]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.6} roughness={0.4} />
-        </mesh>
-        {active && (
-          <mesh>
-            <boxGeometry args={[active.length_mm * MM, active.height_mm * MM, active.width_mm * MM]} />
-            <meshStandardMaterial color="#3b82f6" transparent opacity={0.95} />
-          </mesh>
-        )}
-      </group>
-      {/* pick station */}
-      <mesh position={[pickPos.x, 0.16, pickPos.z]}>
-        <boxGeometry args={[0.6, 0.32, 0.5]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.8} />
-      </mesh>
-      <Html position={[pickPos.x, 0.45, pickPos.z]} center style={{ pointerEvents: 'none' }}>
-        <div className="text-[9px] font-mono text-white/40 bg-black/50 px-1.5 py-0.5 rounded">PICK</div>
-      </Html>
-    </group>
-  );
-}
-
 export default function InteractivePalletScene({
   boxes,
   perBox,
@@ -407,6 +300,8 @@ export default function InteractivePalletScene({
   originXm = 0,
   labelAll = false,
   paletteTag,
+  andonStatus = null,
+  environment = true,
 }: Props) {
   const [controlsEnabled, setControlsEnabled] = useState(true);
   const shown = visibleCount === undefined ? boxes.length : Math.min(visibleCount, boxes.length);
@@ -422,6 +317,15 @@ export default function InteractivePalletScene({
         <ambientLight intensity={0.55} />
         <directionalLight position={[5, 10, 5]} intensity={1.1} castShadow shadow-mapSize={[1024, 1024]} />
         <pointLight position={[-5, 3, -5]} intensity={0.35} />
+        <fog attach="fog" args={['#0a0f1a', 9, 16]} />
+
+        {environment && (
+          <>
+            <CellFloor />
+            <SafetyFence />
+          </>
+        )}
+        {andonStatus && <AndonTower status={andonStatus} position={[pallet.length_mm / 1000 / 2 + 1.54 + originXm, 0, -1.7]} />}
 
         <PalletDeck pallet={pallet} originXm={originXm} tag={paletteTag} />
         <gridHelper args={[8, 32, '#334155', '#1e2937']} position={[0, -0.045, 0]} />
@@ -446,7 +350,16 @@ export default function InteractivePalletScene({
         ))}
 
         {cog && shown > 0 && <CogMarker cog={cog} pallet={pallet} originXm={originXm} />}
-        {robot && <RobotArm boxes={boxes} robot={robot} pallet={pallet} originXm={originXm} />}
+        {robot && (
+          <>
+            <PalletizerArm boxes={boxes} robot={robot} pallet={pallet} originXm={originXm} deckTop={0.04} />
+            <Conveyor
+              pick={pickPosFor(armBaseFor(pallet, originXm))}
+              activeBox={robot.activeIndex >= 0 && robot.activeIndex < boxes.length ? boxes[robot.activeIndex] : null}
+              carrying={robot.progress >= 0.18 && robot.progress < 0.94}
+            />
+          </>
+        )}
 
         <OrbitControls
           enabled={controlsEnabled}
