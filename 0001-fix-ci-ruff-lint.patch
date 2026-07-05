@@ -1,0 +1,789 @@
+From cd645e73baf20d0c2f50885c6a59209fb006e13d Mon Sep 17 00:00:00 2001
+From: Palletizer CI Fix <ci-fix@grimaldi.engineering>
+Date: Sun, 5 Jul 2026 10:08:38 +0000
+Subject: [PATCH] fix(ci): make repo pass ruff 0.15.x and pin ruff for
+ reproducible CI
+
+The CI lint gate broke because the dev extra pinned ruff>=0.4.0 (unpinned), so CI
+pulled ruff 0.15.20, which added rules (UP045 X|None, UP041, UP042, RUF059, ...)
+that flagged both the new construction files and pre-existing core/gateway code.
+Tests and the web build were unaffected.
+
+- Resolve all 114 ruff findings: modernize typing (List/Dict/Optional -> builtins
+  and X|None), sort imports, drop unused imports/locals, rename ambiguous 'l',
+  zip(..., strict=False), contextlib.suppress, en-dash -> hyphen in docstrings.
+- EdgeState keeps (str, Enum) with a targeted noqa: UP042 to preserve the string
+  formatting used in telemetry/logs (StrEnum would change str output).
+- Pin ruff==0.15.20 in the dev extra so CI lint is deterministic and a future
+  ruff release can't silently turn main red again.
+
+Verified: ruff check . -> All checks passed; pytest -> 75 passed; console script OK.
+---
+ construction/__init__.py                      |  4 +-
+ construction/cli.py                           |  3 +-
+ construction/constraints.py                   | 23 ++++----
+ construction/pallet_optimizer.py              | 55 +++++++++----------
+ construction/sku_library.py                   |  6 +-
+ core/ai/vlm_exception_engine.py               |  8 +--
+ core/connectors/ur_bridge.py                  | 13 ++---
+ core/telemetry/data_logger.py                 | 39 +++++++------
+ .../basic_construction_palletise.py           |  1 +
+ gateway/edge_orchestrator.py                  | 20 +++----
+ pyproject.toml                                |  2 +-
+ ros2_integration/hardware_bridge.py           |  9 ++-
+ ros2_integration/lidar_perception.py          | 10 ++--
+ ros2_integration/palletizer_ros2_node.py      | 28 ++++++----
+ 14 files changed, 110 insertions(+), 111 deletions(-)
+
+diff --git a/construction/__init__.py b/construction/__init__.py
+index 58c5dda..991a82f 100644
+--- a/construction/__init__.py
++++ b/construction/__init__.py
+@@ -16,15 +16,15 @@ validated against physical cells or real transport testing. Do not present them
+ as measured performance.
+ """
+ 
+-from .pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, LayerPattern
+ from .constraints import ConstructionStabilityConstraints
++from .pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, LayerPattern
+ from .sku_library import get_construction_sku_library
+ 
+ __version__ = "1.0.0-construction"
+ __all__ = [
+     "ConstructionPalletOptimizer",
+     "ConstructionSKU",
+-    "LayerPattern",
+     "ConstructionStabilityConstraints",
++    "LayerPattern",
+     "get_construction_sku_library",
+ ]
+diff --git a/construction/cli.py b/construction/cli.py
+index 61f7f2e..6d994bb 100644
+--- a/construction/cli.py
++++ b/construction/cli.py
+@@ -1,6 +1,7 @@
+ """CLI entry point for construction palletizer (registered via pyproject scripts)."""
+ 
+-from .pallet_optimizer import ConstructionPalletOptimizer, main as optimizer_main
++from .pallet_optimizer import main as optimizer_main
++
+ 
+ def main():
+     """Entry point for `palletize-construction` CLI."""
+diff --git a/construction/constraints.py b/construction/constraints.py
+index aee4aba..62a0c0c 100644
+--- a/construction/constraints.py
++++ b/construction/constraints.py
+@@ -10,12 +10,13 @@ moves on uneven surfaces without collapse or product damage.
+ """
+ 
+ from __future__ import annotations
+-from dataclasses import dataclass
+-from typing import List, TYPE_CHECKING
++
+ import math
++from dataclasses import dataclass
++from typing import TYPE_CHECKING
+ 
+ if TYPE_CHECKING:
+-    from .pallet_optimizer import PlacedItem, LayerPattern
++    from .pallet_optimizer import LayerPattern, PlacedItem
+ 
+ 
+ @dataclass
+@@ -27,7 +28,7 @@ class ConstructionStabilityConstraints:
+     max_cg_offset_mm: float = 80.0   # Stricter than general for heavy sheets on bumpy roads
+     vibration_damping_factor: float = 0.85  # Construction transport is rougher
+ 
+-    def compute_layer_stability(self, items: List[PlacedItem], base_z: float) -> float:
++    def compute_layer_stability(self, items: list[PlacedItem], base_z: float) -> float:
+         if not items:
+             return 0.0
+ 
+@@ -44,10 +45,10 @@ class ConstructionStabilityConstraints:
+         raw = (support_ratio * 0.35 + cg_score * 0.30 + interlock * 0.20 + overhang * 0.15) * material_factor * height_penalty
+         return max(0.0, min(1.0, raw * self.vibration_damping_factor))
+ 
+-    def compute_overall_stability(self, layers: List[LayerPattern]) -> float:
++    def compute_overall_stability(self, layers: list[LayerPattern]) -> float:
+         if not layers:
+             return 0.0
+-        layer_scores = [l.stability_score for l in layers]
++        layer_scores = [ly.stability_score for ly in layers]
+         avg = sum(layer_scores) / len(layer_scores)
+         # Penalize if top layers much less stable than base (common failure in heavy sheet transport)
+         top_penalty = 0.0
+@@ -55,12 +56,12 @@ class ConstructionStabilityConstraints:
+             top_penalty = max(0, (layers[-2].stability_score - layers[-1].stability_score) * 0.4)
+         return max(0.75, min(1.0, avg - top_penalty))
+ 
+-    def _average_support_ratio(self, items: List[PlacedItem]) -> float:
++    def _average_support_ratio(self, items: list[PlacedItem]) -> float:
+         # Simplified: assume good grid packing gives high support
+         # In real: ray-cast or polygon overlap from below layer
+         return 0.92 if len(items) > 2 else 0.85
+ 
+-    def _cg_stability_score(self, items: List[PlacedItem]) -> float:
++    def _cg_stability_score(self, items: list[PlacedItem]) -> float:
+         if not items:
+             return 1.0
+         total_w = sum(i.sku.weight_kg for i in items)
+@@ -71,7 +72,7 @@ class ConstructionStabilityConstraints:
+         offset = math.hypot(cx - self.pallet_l/2, cy - self.pallet_w/2)
+         return max(0.6, 1.0 - (offset / self.max_cg_offset_mm) * 0.5)
+ 
+-    def _interlock_factor(self, items: List[PlacedItem]) -> float:
++    def _interlock_factor(self, items: list[PlacedItem]) -> float:
+         if not items:
+             return 0.5
+         avg_interlock = sum(i.sku.interlock_score for i in items) / len(items)
+@@ -80,7 +81,7 @@ class ConstructionStabilityConstraints:
+         mix_bonus = 0.08 if len(types) > 1 else 0.0
+         return min(1.0, avg_interlock + mix_bonus)
+ 
+-    def _overhang_penalty(self, items: List[PlacedItem]) -> float:
++    def _overhang_penalty(self, items: list[PlacedItem]) -> float:
+         max_over = 0.0
+         for item in items:
+             # Simple edge distance
+@@ -93,7 +94,7 @@ class ConstructionStabilityConstraints:
+             max_over = max(max_over, -min(0, edge_dist))  # negative if overhang
+         return max(0.7, 1.0 - (max_over / 50.0) * 0.8)  # 50mm max allowed overhang for construction
+ 
+-    def _material_stability_multiplier(self, items: List[PlacedItem]) -> float:
++    def _material_stability_multiplier(self, items: list[PlacedItem]) -> float:
+         mult = 1.0
+         for item in items:
+             if item.sku.material_type == "sheet" and item.sku.fragility > 0.5:
+diff --git a/construction/pallet_optimizer.py b/construction/pallet_optimizer.py
+index 6fc7e9d..c2bce22 100644
+--- a/construction/pallet_optimizer.py
++++ b/construction/pallet_optimizer.py
+@@ -22,11 +22,10 @@ Integrates cleanly with existing PalletizerOrchestrator and optimizer parity.
+ """
+ 
+ from __future__ import annotations
+-from dataclasses import dataclass, field
+-from typing import List, Dict, Tuple, Optional, Literal
+-import math
++
+ import json
+-from pathlib import Path
++from dataclasses import dataclass
++from typing import Literal
+ 
+ try:
+     import numpy as np
+@@ -68,7 +67,7 @@ class PlacedItem:
+ class LayerPattern:
+     """A single stable layer configuration for construction goods."""
+     layer_id: int
+-    items: List[PlacedItem]
++    items: list[PlacedItem]
+     height_mm: float
+     stability_score: float
+     density_utilization: float
+@@ -80,7 +79,7 @@ class LayerPattern:
+ @dataclass
+ class ConstructionPalletPlan:
+     sku_id: str
+-    layers: List[LayerPattern]
++    layers: list[LayerPattern]
+     total_height_mm: float
+     total_weight_kg: float
+     overall_stability: float  # 0-1.0 target >=0.92 for construction transport
+@@ -124,8 +123,8 @@ class ConstructionPalletOptimizer:
+ 
+     def optimize_for_skus(
+         self,
+-        skus: List[ConstructionSKU],
+-        quantities: Optional[List[int]] = None,
++        skus: list[ConstructionSKU],
++        quantities: list[int] | None = None,
+         prioritize: Literal["stability", "density", "speed", "mixed"] = "stability",
+     ) -> ConstructionPalletPlan:
+         """
+@@ -136,16 +135,16 @@ class ConstructionPalletOptimizer:
+             quantities = [sku.qty_available for sku in skus]
+ 
+         # Simple but effective layered greedy + scoring (extendable to MILP later)
+-        layers: List[LayerPattern] = []
++        layers: list[LayerPattern] = []
+         current_z = 0.0
+-        remaining = {sku.sku_id: q for sku, q in zip(skus, quantities)}
++        remaining = {sku.sku_id: q for sku, q in zip(skus, quantities, strict=False)}
+ 
+         layer_id = 0
+         total_weight = 0.0
+-        all_placed: List[PlacedItem] = []
++        all_placed: list[PlacedItem] = []
+ 
+         while any(remaining.values()) and current_z < self.max_h:
+-            layer_items: List[PlacedItem] = []
++            layer_items: list[PlacedItem] = []
+             layer_weight = 0.0
+ 
+             # Choose best SKU for this layer (construction heuristic: sheets first for base,
+@@ -217,8 +216,8 @@ class ConstructionPalletOptimizer:
+         )
+ 
+     def _select_best_sku_for_layer(
+-        self, skus: List[ConstructionSKU], remaining: Dict[str, int], existing_layers: List[LayerPattern], prioritize: str
+-    ) -> Optional[ConstructionSKU]:
++        self, skus: list[ConstructionSKU], remaining: dict[str, int], existing_layers: list[LayerPattern], prioritize: str
++    ) -> ConstructionSKU | None:
+         candidates = [s for s in skus if remaining.get(s.sku_id, 0) > 0]
+         if not candidates:
+             return None
+@@ -234,17 +233,13 @@ class ConstructionPalletOptimizer:
+ 
+         return candidates[0]
+ 
+-    def _pack_layer(self, sku: ConstructionSKU, available: int, base_z: float, layer_id: int) -> List[PlacedItem]:
++    def _pack_layer(self, sku: ConstructionSKU, available: int, base_z: float, layer_id: int) -> list[PlacedItem]:
+         """Simple but robust grid packing with 0/90 rotation. Construction-tuned spacing."""
+-        items: List[PlacedItem] = []
+-        eff_l = sku.length_mm + self.safety * 2
+-        eff_w = sku.width_mm + self.safety * 2
+-
+         # Try both orientations
+         orientations = [(sku.length_mm, sku.width_mm), (sku.width_mm, sku.length_mm)] if sku.preferred_orientation != "flat" else [(sku.length_mm, sku.width_mm)]
+ 
+         best_count = 0
+-        best_items: List[PlacedItem] = []
++        best_items: list[PlacedItem] = []
+         best_rot = 0
+ 
+         for idx, (ol, ow) in enumerate(orientations):
+@@ -267,14 +262,14 @@ class ConstructionPalletOptimizer:
+ 
+         return best_items[:best_count]
+ 
+-    def _compute_layer_density(self, items: List[PlacedItem]) -> float:
++    def _compute_layer_density(self, items: list[PlacedItem]) -> float:
+         if not items:
+             return 0.0
+         used_area = sum(i.sku.length_mm * i.sku.width_mm for i in items)
+         pallet_area = self.pallet_l * self.pallet_w
+         return min(1.0, used_area / pallet_area)
+ 
+-    def _compute_cg(self, items: List[PlacedItem]) -> Tuple[float, float]:
++    def _compute_cg(self, items: list[PlacedItem]) -> tuple[float, float]:
+         if not items or np is None:
+             return 0.0, 0.0
+         total_w = sum(i.sku.weight_kg for i in items)
+@@ -285,7 +280,7 @@ class ConstructionPalletOptimizer:
+         # Offset from pallet center
+         return round(cx - self.pallet_l / 2, 1), round(cy - self.pallet_w / 2, 1)
+ 
+-    def _generate_construction_notes(self, sku: ConstructionSKU, items: List[PlacedItem]) -> str:
++    def _generate_construction_notes(self, sku: ConstructionSKU, items: list[PlacedItem]) -> str:
+         if sku.material_type == "sheet":
+             return "Flat layer — minimal overhang. Verify interlock on transport to site. LiDAR recommended for base pallet scan."
+         if sku.material_type == "lumber_bundle":
+@@ -294,13 +289,13 @@ class ConstructionPalletOptimizer:
+             return "Pyramid-capable layer. Good angle-of-repose for uneven prefab staging areas."
+         return f"Standard construction placement for {sku.name}."
+ 
+-    def _estimate_cycle_time(self, placed: List[PlacedItem]) -> float:
++    def _estimate_cycle_time(self, placed: list[PlacedItem]) -> float:
+         # Rough model: 8-12s per heavy sheet or bundle (construction slower than cases due to size/weight)
+         base = 9.5
+         heavy_factor = sum(1.2 if p.sku.weight_kg > 40 else 1.0 for p in placed)
+         return len(placed) * base * (heavy_factor / max(len(placed), 1))
+ 
+-    def _compute_volume_utilization(self, placed: List[PlacedItem]) -> float:
++    def _compute_volume_utilization(self, placed: list[PlacedItem]) -> float:
+         if not placed:
+             return 0.0
+         used_vol = sum(p.sku.length_mm * p.sku.width_mm * p.sku.height_mm for p in placed)
+@@ -317,9 +312,9 @@ class ConstructionPalletOptimizer:
+             "overall_stability": plan.overall_stability,
+             "layers": [
+                 {
+-                    "layer": l.layer_id,
+-                    "height_mm": l.height_mm,
+-                    "stability": l.stability_score,
++                    "layer": layer.layer_id,
++                    "height_mm": layer.height_mm,
++                    "stability": layer.stability_score,
+                     "items": [
+                         {
+                             "sku": i.sku.sku_id,
+@@ -327,10 +322,10 @@ class ConstructionPalletOptimizer:
+                             "pose": {"x": i.x, "y": i.y, "z": i.z, "rot_deg": i.rotation},
+                             "weight_kg": i.sku.weight_kg,
+                         }
+-                        for i in l.items
++                        for i in layer.items
+                     ],
+                 }
+-                for l in plan.layers
++                for layer in plan.layers
+             ],
+             "construction_notes": plan.construction_notes,
+             "recommended_perception": "LiDAR pointcloud + pallet-pose estimation before first pick",
+diff --git a/construction/sku_library.py b/construction/sku_library.py
+index 95f6603..86e5031 100644
+--- a/construction/sku_library.py
++++ b/construction/sku_library.py
+@@ -7,13 +7,13 @@ Used by ConstructionPalletOptimizer and website interactive demos.
+ Easy to extend with real customer master data (CSV/JSON import ready).
+ """
+ 
+-from typing import List, Dict, TYPE_CHECKING
++from typing import TYPE_CHECKING
+ 
+ if TYPE_CHECKING:
+     from .pallet_optimizer import ConstructionSKU
+ 
+ 
+-def get_construction_sku_library() -> "Dict[str, ConstructionSKU]":
++def get_construction_sku_library() -> "dict[str, ConstructionSKU]":
+     """Return a dict of common construction SKUs ready for optimization."""
+     from .pallet_optimizer import ConstructionSKU
+     return {
+@@ -132,7 +132,7 @@ def get_construction_sku_library() -> "Dict[str, ConstructionSKU]":
+     }
+ 
+ 
+-def load_skus_from_csv(csv_path: str) -> "List[ConstructionSKU]":
++def load_skus_from_csv(csv_path: str) -> "list[ConstructionSKU]":
+     """Future: Import real customer SKU master (CSV with columns matching dataclass)."""
+     # Placeholder — implement with pandas or csv in production
+     raise NotImplementedError("CSV import coming in v1.1 — use get_construction_sku_library() for now")
+diff --git a/core/ai/vlm_exception_engine.py b/core/ai/vlm_exception_engine.py
+index 3f208e1..164ff30 100644
+--- a/core/ai/vlm_exception_engine.py
++++ b/core/ai/vlm_exception_engine.py
+@@ -1,6 +1,6 @@
+ """VLM exception engine: the asynchronous, non-deterministic correction path.
+ 
+-This process is deliberately decoupled from the 50–100 Hz edge control loop.
++This process is deliberately decoupled from the 50-100 Hz edge control loop.
+ It watches the cell over OPC UA, and when the cell reports an EXCEPTION
+ (mispick, skewed box, occluded fiducial), it analyses the offending camera
+ frame with a vision-language model and — only if confidence clears the
+@@ -26,7 +26,7 @@ import hashlib
+ import logging
+ import os
+ import time
+-from typing import Awaitable, Callable, Optional
++from collections.abc import Awaitable, Callable
+ 
+ from asyncua import Client, ua
+ from pydantic import BaseModel, Field, ValidationError
+@@ -76,7 +76,7 @@ async def simulate_vlm_analysis(request: FrameAnalysisRequest) -> VlmCorrection:
+     # Map two hash bytes to +/- 12 mm offsets — a plausible skew correction.
+     dx = (digest[0] / 255.0 - 0.5) * 24.0
+     dy = (digest[1] / 255.0 - 0.5) * 24.0
+-    confidence = 0.90 + (digest[2] / 255.0) * 0.10  # 0.90–1.00
++    confidence = 0.90 + (digest[2] / 255.0) * 0.10  # 0.90-1.00
+     return VlmCorrection(
+         dx=round(dx, 2),
+         dy=round(dy, 2),
+@@ -98,7 +98,7 @@ class VlmExceptionEngine:
+         self.endpoint = endpoint
+         self.analyze = analyze
+         self.confidence_threshold = confidence_threshold
+-        self.client: Optional[Client] = None
++        self.client: Client | None = None
+         self._nodes: dict[str, object] = {}
+         self._stop = asyncio.Event()
+         self.corrections_applied = 0
+diff --git a/core/connectors/ur_bridge.py b/core/connectors/ur_bridge.py
+index dfe8c5c..ef930ff 100644
+--- a/core/connectors/ur_bridge.py
++++ b/core/connectors/ur_bridge.py
+@@ -17,12 +17,13 @@ Notes for the real cell:
+ 
+ from __future__ import annotations
+ 
++import contextlib
+ import logging
+ import math
+ import socket
+ import time
++from collections.abc import Iterable
+ from dataclasses import dataclass
+-from typing import Iterable, Optional
+ 
+ logger = logging.getLogger("palletizer.ur")
+ 
+@@ -161,7 +162,7 @@ class URSecondaryClient:
+         self.host = host
+         self.port = port
+         self.timeout_s = timeout_s
+-        self._sock: Optional[socket.socket] = None
++        self._sock: socket.socket | None = None
+         self.scripts_sent = 0
+ 
+     def connect(self) -> None:
+@@ -175,10 +176,8 @@ class URSecondaryClient:
+ 
+     def close(self) -> None:
+         if self._sock is not None:
+-            try:
++            with contextlib.suppress(OSError):
+                 self._sock.shutdown(socket.SHUT_RDWR)
+-            except OSError:
+-                pass
+             self._sock.close()
+             self._sock = None
+ 
+@@ -189,7 +188,7 @@ class URSecondaryClient:
+             script += "\n"
+         payload = script.encode("utf-8")
+ 
+-        last_error: Optional[Exception] = None
++        last_error: Exception | None = None
+         for attempt in range(1, SEND_RETRIES + 1):
+             try:
+                 if self._sock is None:
+@@ -216,7 +215,7 @@ class URSecondaryClient:
+             f"after {SEND_RETRIES} attempts"
+         ) from last_error
+ 
+-    def __enter__(self) -> "URSecondaryClient":
++    def __enter__(self) -> URSecondaryClient:
+         self.connect()
+         return self
+ 
+diff --git a/core/telemetry/data_logger.py b/core/telemetry/data_logger.py
+index f3e9f21..566a3f1 100644
+--- a/core/telemetry/data_logger.py
++++ b/core/telemetry/data_logger.py
+@@ -26,7 +26,6 @@ import os
+ import time
+ from dataclasses import asdict, dataclass, field
+ from pathlib import Path
+-from typing import Optional
+ 
+ from core.runtime_paths import resolve_data_dir
+ 
+@@ -45,15 +44,15 @@ class TelemetryRecord:
+ 
+     cell_id: str
+     ts_unix: float = field(default_factory=time.time)
+-    joint_positions_rad: Optional[list[float]] = None
+-    joint_torques_nm: Optional[list[float]] = None
+-    tcp_pose: Optional[list[float]] = None
+-    gripper_pressure_kpa: Optional[float] = None
+-    robot_status: Optional[int] = None
+-    edge_state: Optional[str] = None
+-    camera_frame_id: Optional[str] = None
++    joint_positions_rad: list[float] | None = None
++    joint_torques_nm: list[float] | None = None
++    tcp_pose: list[float] | None = None
++    gripper_pressure_kpa: float | None = None
++    robot_status: int | None = None
++    edge_state: str | None = None
++    camera_frame_id: str | None = None
+     anomaly_flag: bool = False
+-    vlm_correction: Optional[dict] = None
++    vlm_correction: dict | None = None
+     schema_version: int = SCHEMA_VERSION
+ 
+     def to_json_line(self) -> str:
+@@ -76,10 +75,10 @@ class DataLogger:
+         )
+         self.max_file_bytes = max_file_bytes
+         self.queue: asyncio.Queue[TelemetryRecord] = asyncio.Queue(maxsize=max_queue_depth)
+-        self._writer_task: Optional[asyncio.Task] = None
++        self._writer_task: asyncio.Task | None = None
+         self._stop = asyncio.Event()
+         self._file_seq = 0
+-        self._current_path: Optional[Path] = None
++        self._current_path: Path | None = None
+         self._current_bytes = 0
+         self.records_written = 0
+         self.records_dropped = 0
+@@ -104,15 +103,15 @@ class DataLogger:
+ 
+     def log_sample(
+         self,
+-        joint_positions_rad: Optional[list[float]] = None,
+-        joint_torques_nm: Optional[list[float]] = None,
+-        tcp_pose: Optional[list[float]] = None,
+-        gripper_pressure_kpa: Optional[float] = None,
+-        robot_status: Optional[int] = None,
+-        edge_state: Optional[str] = None,
+-        camera_frame_id: Optional[str] = None,
++        joint_positions_rad: list[float] | None = None,
++        joint_torques_nm: list[float] | None = None,
++        tcp_pose: list[float] | None = None,
++        gripper_pressure_kpa: float | None = None,
++        robot_status: int | None = None,
++        edge_state: str | None = None,
++        camera_frame_id: str | None = None,
+         anomaly_flag: bool = False,
+-        vlm_correction: Optional[dict] = None,
++        vlm_correction: dict | None = None,
+     ) -> None:
+         self.log(
+             TelemetryRecord(
+@@ -151,7 +150,7 @@ class DataLogger:
+         while not (self._stop.is_set() and self.queue.empty()):
+             try:
+                 record = await asyncio.wait_for(self.queue.get(), timeout=0.5)
+-            except asyncio.TimeoutError:
++            except TimeoutError:
+                 continue
+             line = record.to_json_line() + "\n"
+             data = line.encode("utf-8")
+diff --git a/examples/construction/basic_construction_palletise.py b/examples/construction/basic_construction_palletise.py
+index 1f5f700..c1d1224 100644
+--- a/examples/construction/basic_construction_palletise.py
++++ b/examples/construction/basic_construction_palletise.py
+@@ -8,6 +8,7 @@ Run after integration: python examples/construction/basic_construction_palletise
+ 
+ from construction import ConstructionPalletOptimizer, get_construction_sku_library
+ 
++
+ def main():
+     print("Palletizer OS — Construction Materials Example")
+     print("=" * 50)
+diff --git a/gateway/edge_orchestrator.py b/gateway/edge_orchestrator.py
+index 0852d0b..6fb4c0a 100644
+--- a/gateway/edge_orchestrator.py
++++ b/gateway/edge_orchestrator.py
+@@ -1,6 +1,6 @@
+ """Edge orchestrator: the deterministic control-side brain of a palletiser cell.
+ 
+-Runs a 50–100 Hz asyncio control loop against the cell's OPC UA server
++Runs a 50-100 Hz asyncio control loop against the cell's OPC UA server
+ (mock or real — same address space) and enforces three guarantees:
+ 
+ 1. **Determinism** — no AI inference, no network round-trips inside the loop.
+@@ -24,9 +24,9 @@ import json
+ import logging
+ import os
+ import time
++from collections.abc import Callable
+ from enum import Enum
+ from pathlib import Path
+-from typing import Callable, Optional
+ 
+ from asyncua import Client, ua
+ from pydantic import BaseModel, Field, ValidationError
+@@ -50,7 +50,7 @@ STATUS_EXCEPTION = 2
+ STATUS_FAULT = 3
+ 
+ 
+-class EdgeState(str, Enum):
++class EdgeState(str, Enum):  # noqa: UP042 - keep (str, Enum) to preserve string formatting used in telemetry/logs
+     IDLE = "IDLE"
+     MOVING = "MOVING"
+     EXCEPTION_HANDLING = "EXCEPTION_HANDLING"
+@@ -104,7 +104,7 @@ class PatternCache:
+         tmp.replace(self._path(pattern.pattern_id))
+         logger.info("Cached pattern %s (%d layers)", pattern.pattern_id, len(pattern.layers))
+ 
+-    def load(self, pattern_id: str) -> Optional[PalletPattern]:
++    def load(self, pattern_id: str) -> PalletPattern | None:
+         path = self._path(pattern_id)
+         if not path.exists():
+             return None
+@@ -125,17 +125,17 @@ class EdgeOrchestrator:
+     def __init__(
+         self,
+         endpoint: str = ENDPOINT,
+-        cloud_fetch: Optional[Callable[[str], Optional[PalletPattern]]] = None,
++        cloud_fetch: Callable[[str], PalletPattern | None] | None = None,
+     ) -> None:
+         self.endpoint = endpoint
+         self.cache = PatternCache()
+         self.cloud_fetch = cloud_fetch
+         self.state = EdgeState.IDLE
+-        self.client: Optional[Client] = None
++        self.client: Client | None = None
+         self._nodes: dict[str, object] = {}
+-        self._last_heartbeat_value: Optional[int] = None
++        self._last_heartbeat_value: int | None = None
+         self._last_heartbeat_change = time.monotonic()
+-        self._active_pattern: Optional[PalletPattern] = None
++        self._active_pattern: PalletPattern | None = None
+         self._layer_idx = 0
+         self._step_idx = 0
+         self._stop = asyncio.Event()
+@@ -175,7 +175,7 @@ class EdgeOrchestrator:
+     # ------------------------------------------------------------------
+     # Pattern acquisition — cloud first, cache fallback
+     # ------------------------------------------------------------------
+-    def acquire_pattern(self, pattern_id: str) -> Optional[PalletPattern]:
++    def acquire_pattern(self, pattern_id: str) -> PalletPattern | None:
+         if self.cloud_fetch is not None:
+             try:
+                 pattern = self.cloud_fetch(pattern_id)
+@@ -199,7 +199,7 @@ class EdgeOrchestrator:
+             "Pattern %s armed: %d layers, %d placements total",
+             pattern.pattern_id,
+             len(pattern.layers),
+-            sum(len(l.placements) for l in pattern.layers),
++            sum(len(layer.placements) for layer in pattern.layers),
+         )
+ 
+     # ------------------------------------------------------------------
+diff --git a/pyproject.toml b/pyproject.toml
+index a10ea9c..17a1b8f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -41,7 +41,7 @@ classifiers = [
+ dev = [
+     "pytest>=7.0",
+     "pytest-cov>=4.0",
+-    "ruff>=0.4.0",
++    "ruff==0.15.20",
+ ]
+ edge = [
+     "asyncua>=1.1",
+diff --git a/ros2_integration/hardware_bridge.py b/ros2_integration/hardware_bridge.py
+index 97e419c..4a7804d 100644
+--- a/ros2_integration/hardware_bridge.py
++++ b/ros2_integration/hardware_bridge.py
+@@ -15,9 +15,8 @@ For construction ruthless dominance: These bridges + LiDAR perception
+ enable reliable 24/7 operation in dusty yards and variable prefab environments.
+ """
+ 
+-from typing import Any, Dict
+-import json
+ import time
++from typing import Any
+ 
+ 
+ class BaseConstructionBridge:
+@@ -25,7 +24,7 @@ class BaseConstructionBridge:
+         self.node = node
+         self.last_plan_id = None
+ 
+-    def execute_plan(self, plan_json: Dict) -> bool:
++    def execute_plan(self, plan_json: dict) -> bool:
+         """Execute a ConstructionPalletPlan on the real hardware."""
+         raise NotImplementedError
+ 
+@@ -37,7 +36,7 @@ class BaseConstructionBridge:
+ 
+ class KUKAConstructionBridge(BaseConstructionBridge):
+     """Example bridge for KUKA KR robots popular in building materials."""
+-    def execute_plan(self, plan: Dict) -> bool:
++    def execute_plan(self, plan: dict) -> bool:
+         if self.node:
+             self.node.get_logger().info(f"KUKA bridge: Executing plan {plan.get('plan_id')} with {len(plan.get('layers', []))} layers")
+         # Real impl:
+@@ -50,7 +49,7 @@ class KUKAConstructionBridge(BaseConstructionBridge):
+ 
+ class FANUCConstructionBridge(BaseConstructionBridge):
+     """FANUC bridge — strong in high-speed flooring/drywall manufacturing lines."""
+-    def execute_plan(self, plan: Dict) -> bool:
++    def execute_plan(self, plan: dict) -> bool:
+         if self.node:
+             self.node.get_logger().info(f"FANUC bridge: High-speed palletize {plan.get('plan_id')}")
+         # Real: FANUC ROS-Industrial or Dual Check Safety + TP programs generated from plan
+diff --git a/ros2_integration/lidar_perception.py b/ros2_integration/lidar_perception.py
+index aafcf4e..60901cd 100644
+--- a/ros2_integration/lidar_perception.py
++++ b/ros2_integration/lidar_perception.py
+@@ -17,8 +17,6 @@ or replace dummy box detection with this.
+ Dependencies (in [lidar] extra): open3d, numpy, sensor_msgs (or standalone PCL via python-pcl).
+ """
+ 
+-import time
+-from typing import Tuple, Optional
+ import numpy as np
+ 
+ try:
+@@ -26,9 +24,10 @@ try:
+ except ImportError:
+     o3d = None
+ 
+-from sensor_msgs.msg import PointCloud2
+ import struct
+ 
++from sensor_msgs.msg import PointCloud2
++
+ 
+ class LidarPalletPerception:
+     def __init__(self, voxel_size: float = 0.02, dust_filter: bool = True):
+@@ -37,7 +36,7 @@ class LidarPalletPerception:
+         self.last_pose = None
+         self.last_confidence = 0.0
+ 
+-    def process_pointcloud(self, cloud_msg: PointCloud2) -> Tuple[dict, float, bool]:
++    def process_pointcloud(self, cloud_msg: PointCloud2) -> tuple[dict, float, bool]:
+         """
+         Returns: (pose_dict, confidence 0-1, load_shift_detected: bool)
+         pose_dict: {"x": , "y":, "z":, "yaw_deg": , "roll":, "pitch":}
+@@ -60,7 +59,7 @@ class LidarPalletPerception:
+             pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+ 
+         # Segment dominant plane (floor) then cluster for pallet/load
+-        plane_model, inliers = pcd.segment_plane(distance_threshold=0.03, ransac_n=3, num_iterations=100)
++        _plane_model, inliers = pcd.segment_plane(distance_threshold=0.03, ransac_n=3, num_iterations=100)
+         pallet_cloud = pcd.select_by_index(inliers, invert=True)
+ 
+         if len(pallet_cloud.points) < 50:
+@@ -69,7 +68,6 @@ class LidarPalletPerception:
+         # Simple bounding box + center for pallet pose (production: use oriented BB or ICP to CAD)
+         aabb = pallet_cloud.get_axis_aligned_bounding_box()
+         center = aabb.get_center()
+-        extent = aabb.get_extent()
+ 
+         # Fake yaw from extent ratio or principal component (simplified)
+         yaw = 0.0  # TODO: real PCA or template matching
+diff --git a/ros2_integration/palletizer_ros2_node.py b/ros2_integration/palletizer_ros2_node.py
+index b1b6643..ebed79b 100644
+--- a/ros2_integration/palletizer_ros2_node.py
++++ b/ros2_integration/palletizer_ros2_node.py
+@@ -28,24 +28,30 @@ This closes the software-hardware loop for construction: same code that gives
+ robustness on dusty, uneven prefab sites.
+ """
+ 
+-import rclpy
+-from rclpy.node import Node
+-from rclpy.action import ActionServer
+-from std_msgs.msg import String, Bool
+-from sensor_msgs.msg import PointCloud2, LaserScan
+-from geometry_msgs.msg import PoseStamped
+ import json
+ import time
+-from typing import Optional
++
++import rclpy
++from rclpy.node import Node
++from sensor_msgs.msg import LaserScan, PointCloud2
++from std_msgs.msg import Bool, String
+ 
+ # Palletizer core (assumes editable install or PYTHONPATH includes parent)
+ try:
+-    from construction.pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, get_construction_sku_library
++    from construction.pallet_optimizer import (
++        ConstructionPalletOptimizer,
++        ConstructionSKU,
++        get_construction_sku_library,
++    )
+ except ImportError:
+-    from ..construction.pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, get_construction_sku_library
++    from ..construction.pallet_optimizer import (
++        ConstructionPalletOptimizer,
++        ConstructionSKU,
++        get_construction_sku_library,
++    )
+ 
+-from .lidar_perception import LidarPalletPerception
+ from .hardware_bridge import get_hardware_bridge
++from .lidar_perception import LidarPalletPerception
+ 
+ 
+ class PalletizerROS2Node(Node):
+@@ -83,7 +89,7 @@ class PalletizerROS2Node(Node):
+         # Action server example (for long-running palletize mission)
+         # self._action_server = ActionServer(self, PalletizeMission, 'palletize_mission', self.execute_mission)
+ 
+-        self.current_plan: Optional[dict] = None
++        self.current_plan: dict | None = None
+         self.last_lidar_update = time.time()
+ 
+         self.get_logger().info(f"Node ready. Robot bridge: {robot_type}. LiDAR: {self.use_lidar}")
+-- 
+2.43.0
+
