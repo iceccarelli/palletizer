@@ -1,3 +1,24 @@
+## [Unreleased] — Construction vertical + ROS 2 / LiDAR reference (additive)
+
+### Added
+- `construction/` optimizer, SKU library, and stability constraints for
+  construction materials (drywall, lumber, bagged goods, flooring). Reference
+  heuristic — reported stability/cycle figures are illustrative, not validated.
+- `ros2_integration/` ROS 2 node, LiDAR perception, and vendor-neutral bridge
+  examples. Package imports without ROS 2 installed (lazy loading).
+- Website routes `/construction`, `/hardware`, `/integrations`, `/about`, plus a
+  browser optimizer (`web/lib/construction-optimizer.ts`) and an "Industries"
+  nav menu. New pages reuse the global Navbar/Footer.
+- `construction` pip extra, `palletize-construction` console script, and
+  `tests/test_construction.py` (5 tests).
+
+### Fixed (in the incoming construction pack, before merge)
+- Two circular imports that prevented `construction` from importing at all.
+- Wrong browser-engine import path and duplicated page-level navigation.
+- Removed fabricated metrics and unverifiable claims (e.g. "8–14 month payback",
+  "60% injury reduction", "certified / production-proven", OEM-partner and
+  ISO-certification implications). Copy is now honest pre-launch positioning.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

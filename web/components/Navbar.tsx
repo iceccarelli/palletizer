@@ -75,6 +75,27 @@ const MENUS: MenuDef[] = [
       },
     ],
   },
+  {
+    id: "industries",
+    label: "Industries",
+    columns: [
+      {
+        title: "Construction",
+        links: [
+          { href: "/construction", label: "Construction Materials", desc: "Drywall, lumber, bagged goods, flooring" },
+          { href: "/hardware", label: "Hardware & ROS 2", desc: "Arms, LiDAR, open bridge examples" },
+          { href: "/integrations", label: "ROS 2 + LiDAR", desc: "Closing the loop, browser → cell" },
+        ],
+      },
+      {
+        title: "Company",
+        links: [
+          { href: "/about", label: "About", desc: "Open engine, early-stage, seeking pilots" },
+          { href: "/contact", label: "Request a Pilot", desc: "Pre-revenue — talk to us" },
+        ],
+      },
+    ],
+  },
 ];
 
 const PLAIN_LINKS = [
