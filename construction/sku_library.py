@@ -7,13 +7,13 @@ Used by ConstructionPalletOptimizer and website interactive demos.
 Easy to extend with real customer master data (CSV/JSON import ready).
 """
 
-from typing import List, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .pallet_optimizer import ConstructionSKU
 
 
-def get_construction_sku_library() -> "Dict[str, ConstructionSKU]":
+def get_construction_sku_library() -> "dict[str, ConstructionSKU]":
     """Return a dict of common construction SKUs ready for optimization."""
     from .pallet_optimizer import ConstructionSKU
     return {
@@ -132,7 +132,7 @@ def get_construction_sku_library() -> "Dict[str, ConstructionSKU]":
     }
 
 
-def load_skus_from_csv(csv_path: str) -> "List[ConstructionSKU]":
+def load_skus_from_csv(csv_path: str) -> "list[ConstructionSKU]":
     """Future: Import real customer SKU master (CSV with columns matching dataclass)."""
     # Placeholder — implement with pandas or csv in production
     raise NotImplementedError("CSV import coming in v1.1 — use get_construction_sku_library() for now")

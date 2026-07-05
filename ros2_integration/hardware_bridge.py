@@ -15,9 +15,8 @@ For construction ruthless dominance: These bridges + LiDAR perception
 enable reliable 24/7 operation in dusty yards and variable prefab environments.
 """
 
-from typing import Any, Dict
-import json
 import time
+from typing import Any
 
 
 class BaseConstructionBridge:
@@ -25,7 +24,7 @@ class BaseConstructionBridge:
         self.node = node
         self.last_plan_id = None
 
-    def execute_plan(self, plan_json: Dict) -> bool:
+    def execute_plan(self, plan_json: dict) -> bool:
         """Execute a ConstructionPalletPlan on the real hardware."""
         raise NotImplementedError
 
@@ -37,7 +36,7 @@ class BaseConstructionBridge:
 
 class KUKAConstructionBridge(BaseConstructionBridge):
     """Example bridge for KUKA KR robots popular in building materials."""
-    def execute_plan(self, plan: Dict) -> bool:
+    def execute_plan(self, plan: dict) -> bool:
         if self.node:
             self.node.get_logger().info(f"KUKA bridge: Executing plan {plan.get('plan_id')} with {len(plan.get('layers', []))} layers")
         # Real impl:
@@ -50,7 +49,7 @@ class KUKAConstructionBridge(BaseConstructionBridge):
 
 class FANUCConstructionBridge(BaseConstructionBridge):
     """FANUC bridge — strong in high-speed flooring/drywall manufacturing lines."""
-    def execute_plan(self, plan: Dict) -> bool:
+    def execute_plan(self, plan: dict) -> bool:
         if self.node:
             self.node.get_logger().info(f"FANUC bridge: High-speed palletize {plan.get('plan_id')}")
         # Real: FANUC ROS-Industrial or Dual Check Safety + TP programs generated from plan

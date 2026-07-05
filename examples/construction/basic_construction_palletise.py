@@ -8,6 +8,7 @@ Run after integration: python examples/construction/basic_construction_palletise
 
 from construction import ConstructionPalletOptimizer, get_construction_sku_library
 
+
 def main():
     print("Palletizer OS — Construction Materials Example")
     print("=" * 50)

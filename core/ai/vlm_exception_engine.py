@@ -1,6 +1,6 @@
 """VLM exception engine: the asynchronous, non-deterministic correction path.
 
-This process is deliberately decoupled from the 50–100 Hz edge control loop.
+This process is deliberately decoupled from the 50-100 Hz edge control loop.
 It watches the cell over OPC UA, and when the cell reports an EXCEPTION
 (mispick, skewed box, occluded fiducial), it analyses the offending camera
 frame with a vision-language model and — only if confidence clears the
@@ -26,7 +26,7 @@ import hashlib
 import logging
 import os
 import time
-from typing import Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
 
 from asyncua import Client, ua
 from pydantic import BaseModel, Field, ValidationError
@@ -76,7 +76,7 @@ async def simulate_vlm_analysis(request: FrameAnalysisRequest) -> VlmCorrection:
     # Map two hash bytes to +/- 12 mm offsets — a plausible skew correction.
     dx = (digest[0] / 255.0 - 0.5) * 24.0
     dy = (digest[1] / 255.0 - 0.5) * 24.0
-    confidence = 0.90 + (digest[2] / 255.0) * 0.10  # 0.90–1.00
+    confidence = 0.90 + (digest[2] / 255.0) * 0.10  # 0.90-1.00
     return VlmCorrection(
         dx=round(dx, 2),
         dy=round(dy, 2),
@@ -98,7 +98,7 @@ class VlmExceptionEngine:
         self.endpoint = endpoint
         self.analyze = analyze
         self.confidence_threshold = confidence_threshold
-        self.client: Optional[Client] = None
+        self.client: Client | None = None
         self._nodes: dict[str, object] = {}
         self._stop = asyncio.Event()
         self.corrections_applied = 0

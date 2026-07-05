@@ -26,7 +26,6 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from core.runtime_paths import resolve_data_dir
 
@@ -45,15 +44,15 @@ class TelemetryRecord:
 
     cell_id: str
     ts_unix: float = field(default_factory=time.time)
-    joint_positions_rad: Optional[list[float]] = None
-    joint_torques_nm: Optional[list[float]] = None
-    tcp_pose: Optional[list[float]] = None
-    gripper_pressure_kpa: Optional[float] = None
-    robot_status: Optional[int] = None
-    edge_state: Optional[str] = None
-    camera_frame_id: Optional[str] = None
+    joint_positions_rad: list[float] | None = None
+    joint_torques_nm: list[float] | None = None
+    tcp_pose: list[float] | None = None
+    gripper_pressure_kpa: float | None = None
+    robot_status: int | None = None
+    edge_state: str | None = None
+    camera_frame_id: str | None = None
     anomaly_flag: bool = False
-    vlm_correction: Optional[dict] = None
+    vlm_correction: dict | None = None
     schema_version: int = SCHEMA_VERSION
 
     def to_json_line(self) -> str:
@@ -76,10 +75,10 @@ class DataLogger:
         )
         self.max_file_bytes = max_file_bytes
         self.queue: asyncio.Queue[TelemetryRecord] = asyncio.Queue(maxsize=max_queue_depth)
-        self._writer_task: Optional[asyncio.Task] = None
+        self._writer_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._file_seq = 0
-        self._current_path: Optional[Path] = None
+        self._current_path: Path | None = None
         self._current_bytes = 0
         self.records_written = 0
         self.records_dropped = 0
@@ -104,15 +103,15 @@ class DataLogger:
 
     def log_sample(
         self,
-        joint_positions_rad: Optional[list[float]] = None,
-        joint_torques_nm: Optional[list[float]] = None,
-        tcp_pose: Optional[list[float]] = None,
-        gripper_pressure_kpa: Optional[float] = None,
-        robot_status: Optional[int] = None,
-        edge_state: Optional[str] = None,
-        camera_frame_id: Optional[str] = None,
+        joint_positions_rad: list[float] | None = None,
+        joint_torques_nm: list[float] | None = None,
+        tcp_pose: list[float] | None = None,
+        gripper_pressure_kpa: float | None = None,
+        robot_status: int | None = None,
+        edge_state: str | None = None,
+        camera_frame_id: str | None = None,
         anomaly_flag: bool = False,
-        vlm_correction: Optional[dict] = None,
+        vlm_correction: dict | None = None,
     ) -> None:
         self.log(
             TelemetryRecord(
@@ -151,7 +150,7 @@ class DataLogger:
         while not (self._stop.is_set() and self.queue.empty()):
             try:
                 record = await asyncio.wait_for(self.queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             line = record.to_json_line() + "\n"
             data = line.encode("utf-8")

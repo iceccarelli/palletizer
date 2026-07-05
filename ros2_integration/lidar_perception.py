@@ -17,8 +17,6 @@ or replace dummy box detection with this.
 Dependencies (in [lidar] extra): open3d, numpy, sensor_msgs (or standalone PCL via python-pcl).
 """
 
-import time
-from typing import Tuple, Optional
 import numpy as np
 
 try:
@@ -26,8 +24,9 @@ try:
 except ImportError:
     o3d = None
 
-from sensor_msgs.msg import PointCloud2
 import struct
+
+from sensor_msgs.msg import PointCloud2
 
 
 class LidarPalletPerception:
@@ -37,7 +36,7 @@ class LidarPalletPerception:
         self.last_pose = None
         self.last_confidence = 0.0
 
-    def process_pointcloud(self, cloud_msg: PointCloud2) -> Tuple[dict, float, bool]:
+    def process_pointcloud(self, cloud_msg: PointCloud2) -> tuple[dict, float, bool]:
         """
         Returns: (pose_dict, confidence 0-1, load_shift_detected: bool)
         pose_dict: {"x": , "y":, "z":, "yaw_deg": , "roll":, "pitch":}
@@ -60,7 +59,7 @@ class LidarPalletPerception:
             pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
         # Segment dominant plane (floor) then cluster for pallet/load
-        plane_model, inliers = pcd.segment_plane(distance_threshold=0.03, ransac_n=3, num_iterations=100)
+        _plane_model, inliers = pcd.segment_plane(distance_threshold=0.03, ransac_n=3, num_iterations=100)
         pallet_cloud = pcd.select_by_index(inliers, invert=True)
 
         if len(pallet_cloud.points) < 50:
@@ -69,7 +68,6 @@ class LidarPalletPerception:
         # Simple bounding box + center for pallet pose (production: use oriented BB or ICP to CAD)
         aabb = pallet_cloud.get_axis_aligned_bounding_box()
         center = aabb.get_center()
-        extent = aabb.get_extent()
 
         # Fake yaw from extent ratio or principal component (simplified)
         yaw = 0.0  # TODO: real PCA or template matching

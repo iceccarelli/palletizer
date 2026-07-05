@@ -17,12 +17,13 @@ Notes for the real cell:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import socket
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Optional
 
 logger = logging.getLogger("palletizer.ur")
 
@@ -161,7 +162,7 @@ class URSecondaryClient:
         self.host = host
         self.port = port
         self.timeout_s = timeout_s
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
         self.scripts_sent = 0
 
     def connect(self) -> None:
@@ -175,10 +176,8 @@ class URSecondaryClient:
 
     def close(self) -> None:
         if self._sock is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             self._sock.close()
             self._sock = None
 
@@ -189,7 +188,7 @@ class URSecondaryClient:
             script += "\n"
         payload = script.encode("utf-8")
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(1, SEND_RETRIES + 1):
             try:
                 if self._sock is None:
@@ -216,7 +215,7 @@ class URSecondaryClient:
             f"after {SEND_RETRIES} attempts"
         ) from last_error
 
-    def __enter__(self) -> "URSecondaryClient":
+    def __enter__(self) -> URSecondaryClient:
         self.connect()
         return self
 

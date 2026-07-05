@@ -16,15 +16,15 @@ validated against physical cells or real transport testing. Do not present them
 as measured performance.
 """
 
-from .pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, LayerPattern
 from .constraints import ConstructionStabilityConstraints
+from .pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, LayerPattern
 from .sku_library import get_construction_sku_library
 
 __version__ = "1.0.0-construction"
 __all__ = [
     "ConstructionPalletOptimizer",
     "ConstructionSKU",
-    "LayerPattern",
     "ConstructionStabilityConstraints",
+    "LayerPattern",
     "get_construction_sku_library",
 ]

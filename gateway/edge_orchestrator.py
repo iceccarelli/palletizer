@@ -1,6 +1,6 @@
 """Edge orchestrator: the deterministic control-side brain of a palletiser cell.
 
-Runs a 50–100 Hz asyncio control loop against the cell's OPC UA server
+Runs a 50-100 Hz asyncio control loop against the cell's OPC UA server
 (mock or real — same address space) and enforces three guarantees:
 
 1. **Determinism** — no AI inference, no network round-trips inside the loop.
@@ -24,9 +24,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
 
 from asyncua import Client, ua
 from pydantic import BaseModel, Field, ValidationError
@@ -50,7 +50,7 @@ STATUS_EXCEPTION = 2
 STATUS_FAULT = 3
 
 
-class EdgeState(str, Enum):
+class EdgeState(str, Enum):  # noqa: UP042 - keep (str, Enum) to preserve string formatting used in telemetry/logs
     IDLE = "IDLE"
     MOVING = "MOVING"
     EXCEPTION_HANDLING = "EXCEPTION_HANDLING"
@@ -104,7 +104,7 @@ class PatternCache:
         tmp.replace(self._path(pattern.pattern_id))
         logger.info("Cached pattern %s (%d layers)", pattern.pattern_id, len(pattern.layers))
 
-    def load(self, pattern_id: str) -> Optional[PalletPattern]:
+    def load(self, pattern_id: str) -> PalletPattern | None:
         path = self._path(pattern_id)
         if not path.exists():
             return None
@@ -125,17 +125,17 @@ class EdgeOrchestrator:
     def __init__(
         self,
         endpoint: str = ENDPOINT,
-        cloud_fetch: Optional[Callable[[str], Optional[PalletPattern]]] = None,
+        cloud_fetch: Callable[[str], PalletPattern | None] | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.cache = PatternCache()
         self.cloud_fetch = cloud_fetch
         self.state = EdgeState.IDLE
-        self.client: Optional[Client] = None
+        self.client: Client | None = None
         self._nodes: dict[str, object] = {}
-        self._last_heartbeat_value: Optional[int] = None
+        self._last_heartbeat_value: int | None = None
         self._last_heartbeat_change = time.monotonic()
-        self._active_pattern: Optional[PalletPattern] = None
+        self._active_pattern: PalletPattern | None = None
         self._layer_idx = 0
         self._step_idx = 0
         self._stop = asyncio.Event()
@@ -175,7 +175,7 @@ class EdgeOrchestrator:
     # ------------------------------------------------------------------
     # Pattern acquisition — cloud first, cache fallback
     # ------------------------------------------------------------------
-    def acquire_pattern(self, pattern_id: str) -> Optional[PalletPattern]:
+    def acquire_pattern(self, pattern_id: str) -> PalletPattern | None:
         if self.cloud_fetch is not None:
             try:
                 pattern = self.cloud_fetch(pattern_id)
@@ -199,7 +199,7 @@ class EdgeOrchestrator:
             "Pattern %s armed: %d layers, %d placements total",
             pattern.pattern_id,
             len(pattern.layers),
-            sum(len(l.placements) for l in pattern.layers),
+            sum(len(layer.placements) for layer in pattern.layers),
         )
 
     # ------------------------------------------------------------------

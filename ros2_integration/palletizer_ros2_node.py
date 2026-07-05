@@ -28,24 +28,30 @@ This closes the software-hardware loop for construction: same code that gives
 robustness on dusty, uneven prefab sites.
 """
 
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionServer
-from std_msgs.msg import String, Bool
-from sensor_msgs.msg import PointCloud2, LaserScan
-from geometry_msgs.msg import PoseStamped
 import json
 import time
-from typing import Optional
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan, PointCloud2
+from std_msgs.msg import Bool, String
 
 # Palletizer core (assumes editable install or PYTHONPATH includes parent)
 try:
-    from construction.pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, get_construction_sku_library
+    from construction.pallet_optimizer import (
+        ConstructionPalletOptimizer,
+        ConstructionSKU,
+        get_construction_sku_library,
+    )
 except ImportError:
-    from ..construction.pallet_optimizer import ConstructionPalletOptimizer, ConstructionSKU, get_construction_sku_library
+    from ..construction.pallet_optimizer import (
+        ConstructionPalletOptimizer,
+        ConstructionSKU,
+        get_construction_sku_library,
+    )
 
-from .lidar_perception import LidarPalletPerception
 from .hardware_bridge import get_hardware_bridge
+from .lidar_perception import LidarPalletPerception
 
 
 class PalletizerROS2Node(Node):
@@ -83,7 +89,7 @@ class PalletizerROS2Node(Node):
         # Action server example (for long-running palletize mission)
         # self._action_server = ActionServer(self, PalletizeMission, 'palletize_mission', self.execute_mission)
 
-        self.current_plan: Optional[dict] = None
+        self.current_plan: dict | None = None
         self.last_lidar_update = time.time()
 
         self.get_logger().info(f"Node ready. Robot bridge: {robot_type}. LiDAR: {self.use_lidar}")

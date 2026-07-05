@@ -22,11 +22,10 @@ Integrates cleanly with existing PalletizerOrchestrator and optimizer parity.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional, Literal
-import math
+
 import json
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Literal
 
 try:
     import numpy as np
@@ -68,7 +67,7 @@ class PlacedItem:
 class LayerPattern:
     """A single stable layer configuration for construction goods."""
     layer_id: int
-    items: List[PlacedItem]
+    items: list[PlacedItem]
     height_mm: float
     stability_score: float
     density_utilization: float
@@ -80,7 +79,7 @@ class LayerPattern:
 @dataclass
 class ConstructionPalletPlan:
     sku_id: str
-    layers: List[LayerPattern]
+    layers: list[LayerPattern]
     total_height_mm: float
     total_weight_kg: float
     overall_stability: float  # 0-1.0 target >=0.92 for construction transport
@@ -124,8 +123,8 @@ class ConstructionPalletOptimizer:
 
     def optimize_for_skus(
         self,
-        skus: List[ConstructionSKU],
-        quantities: Optional[List[int]] = None,
+        skus: list[ConstructionSKU],
+        quantities: list[int] | None = None,
         prioritize: Literal["stability", "density", "speed", "mixed"] = "stability",
     ) -> ConstructionPalletPlan:
         """
@@ -136,16 +135,16 @@ class ConstructionPalletOptimizer:
             quantities = [sku.qty_available for sku in skus]
 
         # Simple but effective layered greedy + scoring (extendable to MILP later)
-        layers: List[LayerPattern] = []
+        layers: list[LayerPattern] = []
         current_z = 0.0
-        remaining = {sku.sku_id: q for sku, q in zip(skus, quantities)}
+        remaining = {sku.sku_id: q for sku, q in zip(skus, quantities, strict=False)}
 
         layer_id = 0
         total_weight = 0.0
-        all_placed: List[PlacedItem] = []
+        all_placed: list[PlacedItem] = []
 
         while any(remaining.values()) and current_z < self.max_h:
-            layer_items: List[PlacedItem] = []
+            layer_items: list[PlacedItem] = []
             layer_weight = 0.0
 
             # Choose best SKU for this layer (construction heuristic: sheets first for base,
@@ -217,8 +216,8 @@ class ConstructionPalletOptimizer:
         )
 
     def _select_best_sku_for_layer(
-        self, skus: List[ConstructionSKU], remaining: Dict[str, int], existing_layers: List[LayerPattern], prioritize: str
-    ) -> Optional[ConstructionSKU]:
+        self, skus: list[ConstructionSKU], remaining: dict[str, int], existing_layers: list[LayerPattern], prioritize: str
+    ) -> ConstructionSKU | None:
         candidates = [s for s in skus if remaining.get(s.sku_id, 0) > 0]
         if not candidates:
             return None
@@ -234,17 +233,13 @@ class ConstructionPalletOptimizer:
 
         return candidates[0]
 
-    def _pack_layer(self, sku: ConstructionSKU, available: int, base_z: float, layer_id: int) -> List[PlacedItem]:
+    def _pack_layer(self, sku: ConstructionSKU, available: int, base_z: float, layer_id: int) -> list[PlacedItem]:
         """Simple but robust grid packing with 0/90 rotation. Construction-tuned spacing."""
-        items: List[PlacedItem] = []
-        eff_l = sku.length_mm + self.safety * 2
-        eff_w = sku.width_mm + self.safety * 2
-
         # Try both orientations
         orientations = [(sku.length_mm, sku.width_mm), (sku.width_mm, sku.length_mm)] if sku.preferred_orientation != "flat" else [(sku.length_mm, sku.width_mm)]
 
         best_count = 0
-        best_items: List[PlacedItem] = []
+        best_items: list[PlacedItem] = []
         best_rot = 0
 
         for idx, (ol, ow) in enumerate(orientations):
@@ -267,14 +262,14 @@ class ConstructionPalletOptimizer:
 
         return best_items[:best_count]
 
-    def _compute_layer_density(self, items: List[PlacedItem]) -> float:
+    def _compute_layer_density(self, items: list[PlacedItem]) -> float:
         if not items:
             return 0.0
         used_area = sum(i.sku.length_mm * i.sku.width_mm for i in items)
         pallet_area = self.pallet_l * self.pallet_w
         return min(1.0, used_area / pallet_area)
 
-    def _compute_cg(self, items: List[PlacedItem]) -> Tuple[float, float]:
+    def _compute_cg(self, items: list[PlacedItem]) -> tuple[float, float]:
         if not items or np is None:
             return 0.0, 0.0
         total_w = sum(i.sku.weight_kg for i in items)
@@ -285,7 +280,7 @@ class ConstructionPalletOptimizer:
         # Offset from pallet center
         return round(cx - self.pallet_l / 2, 1), round(cy - self.pallet_w / 2, 1)
 
-    def _generate_construction_notes(self, sku: ConstructionSKU, items: List[PlacedItem]) -> str:
+    def _generate_construction_notes(self, sku: ConstructionSKU, items: list[PlacedItem]) -> str:
         if sku.material_type == "sheet":
             return "Flat layer — minimal overhang. Verify interlock on transport to site. LiDAR recommended for base pallet scan."
         if sku.material_type == "lumber_bundle":
@@ -294,13 +289,13 @@ class ConstructionPalletOptimizer:
             return "Pyramid-capable layer. Good angle-of-repose for uneven prefab staging areas."
         return f"Standard construction placement for {sku.name}."
 
-    def _estimate_cycle_time(self, placed: List[PlacedItem]) -> float:
+    def _estimate_cycle_time(self, placed: list[PlacedItem]) -> float:
         # Rough model: 8-12s per heavy sheet or bundle (construction slower than cases due to size/weight)
         base = 9.5
         heavy_factor = sum(1.2 if p.sku.weight_kg > 40 else 1.0 for p in placed)
         return len(placed) * base * (heavy_factor / max(len(placed), 1))
 
-    def _compute_volume_utilization(self, placed: List[PlacedItem]) -> float:
+    def _compute_volume_utilization(self, placed: list[PlacedItem]) -> float:
         if not placed:
             return 0.0
         used_vol = sum(p.sku.length_mm * p.sku.width_mm * p.sku.height_mm for p in placed)
@@ -317,9 +312,9 @@ class ConstructionPalletOptimizer:
             "overall_stability": plan.overall_stability,
             "layers": [
                 {
-                    "layer": l.layer_id,
-                    "height_mm": l.height_mm,
-                    "stability": l.stability_score,
+                    "layer": layer.layer_id,
+                    "height_mm": layer.height_mm,
+                    "stability": layer.stability_score,
                     "items": [
                         {
                             "sku": i.sku.sku_id,
@@ -327,10 +322,10 @@ class ConstructionPalletOptimizer:
                             "pose": {"x": i.x, "y": i.y, "z": i.z, "rot_deg": i.rotation},
                             "weight_kg": i.sku.weight_kg,
                         }
-                        for i in l.items
+                        for i in layer.items
                     ],
                 }
-                for l in plan.layers
+                for layer in plan.layers
             ],
             "construction_notes": plan.construction_notes,
             "recommended_perception": "LiDAR pointcloud + pallet-pose estimation before first pick",

@@ -1,6 +1,7 @@
 """CLI entry point for construction palletizer (registered via pyproject scripts)."""
 
-from .pallet_optimizer import ConstructionPalletOptimizer, main as optimizer_main
+from .pallet_optimizer import main as optimizer_main
+
 
 def main():
     """Entry point for `palletize-construction` CLI."""
