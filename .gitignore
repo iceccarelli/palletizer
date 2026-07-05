@@ -51,3 +51,7 @@ palletizer-construction-integration*
 # native C++ build artifacts
 native/*.so
 native/build/
+
+palletizer-native-mcp.*
+
+palletizer-native-mcp.*
