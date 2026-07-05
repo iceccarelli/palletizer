@@ -47,3 +47,7 @@ data/
 
 # integration delivery artifacts
 palletizer-construction-integration*
+
+# native C++ build artifacts
+native/*.so
+native/build/

@@ -68,7 +68,7 @@ palletize-optimize = "palletizer_full.optimizer:cli"
 palletize-construction = "construction.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["palletizer_full*", "core*", "gateway*", "construction*", "ros2_integration*"]
+include = ["palletizer_full*", "core*", "gateway*", "construction*", "ros2_integration*", "mcp*", "native*"]
 
 [tool.ruff]
 target-version = "py311"
