@@ -1,0 +1,265 @@
+From 2f1fc8997cae6c9447f6be72287826d72903114b Mon Sep 17 00:00:00 2001
+From: Vincenzo Grimaldi <vincenzo@igrimaldi.engineering>
+Date: Sun, 5 Jul 2026 13:22:11 +0000
+Subject: [PATCH] test: stress + invariant guards for native packer and MCP
+ server
+
+- test_native_invariants.py: placement bounds, no same-layer overlap,
+  determinism, height budget, empty/single/oversized edge cases, and the
+  Python-fallback path when the compiled module is absent. Asserts validity,
+  not bit-identity (native is an opt-in heuristic).
+- test_mcp_server.py: JSON-RPC handshake, tool schema stability, unknown
+  method/tool errors, messy/empty/garbage CSV ingestion, ingest->optimize
+  pipeline, and a real stdio subprocess roundtrip incl. malformed-JSON survival.
+100 tests pass; parity and existing suite unchanged.
+---
+ tests/test_mcp_server.py        | 112 ++++++++++++++++++++++++++++++
+ tests/test_native_invariants.py | 117 ++++++++++++++++++++++++++++++++
+ 2 files changed, 229 insertions(+)
+ create mode 100644 tests/test_mcp_server.py
+ create mode 100644 tests/test_native_invariants.py
+
+diff --git a/tests/test_mcp_server.py b/tests/test_mcp_server.py
+new file mode 100644
+index 0000000..4263b74
+--- /dev/null
++++ b/tests/test_mcp_server.py
+@@ -0,0 +1,112 @@
++"""Protocol + robustness stress tests for the MCP server.
++
++Exercises the JSON-RPC surface directly via _dispatch (fast, in-process) plus
++one real stdio subprocess round-trip, and hammers the error paths: unknown
++method, unknown tool, malformed arguments, messy/empty CSV. The server must
++answer every case with a structured result or a JSON-RPC error and never raise
++out to the caller.
++"""
++
++from __future__ import annotations
++
++import json
++import subprocess
++import sys
++
++import pytest
++
++from mcp.server import _dispatch
++
++MESSY_CSV = "Article,Long (mm),Breadth,Tall,Mass_kg\nA-1,300,200,150,4.2\nA-2,400,300,150,6.1\n"
++
++
++def _call(tool: str, args: dict) -> dict:
++    resp = _dispatch("tools/call", {"name": tool, "arguments": args}, use_llm=False)
++    return json.loads(resp["content"][0]["text"])
++
++
++def test_initialize_handshake() -> None:
++    res = _dispatch("initialize", {}, use_llm=False)
++    assert res["protocolVersion"]
++    assert res["serverInfo"]["name"] == "palletizer"
++
++
++def test_tools_list_is_stable() -> None:
++    tools = _dispatch("tools/list", {}, use_llm=False)["tools"]
++    assert [t["name"] for t in tools] == ["optimize_pallet", "validate_stability", "ingest_wms_csv"]
++    for t in tools:  # every tool advertises a schema
++        assert t["inputSchema"]["type"] == "object"
++
++
++def test_unknown_method_raises() -> None:
++    with pytest.raises(ValueError):
++        _dispatch("does/not/exist", {}, use_llm=False)
++
++
++def test_unknown_tool_raises() -> None:
++    with pytest.raises(ValueError):
++        _dispatch("tools/call", {"name": "nope", "arguments": {}}, use_llm=False)
++
++
++def test_ingest_maps_messy_headers() -> None:
++    out = _call("ingest_wms_csv", {"csv_text": MESSY_CSV})
++    assert out["mapped_columns"]["sku_id"] == "Article"
++    assert out["mapped_columns"]["length_mm"] == "Long (mm)"
++    assert len(out["boxes"]) == 2
++    assert out["llm_used"] is False
++
++
++def test_ingest_empty_csv_does_not_crash() -> None:
++    out = _call("ingest_wms_csv", {"csv_text": ""})
++    assert out["boxes"] == []
++
++
++def test_ingest_garbage_rows_are_skipped_not_fatal() -> None:
++    csv = "sku,length_mm,width_mm,height_mm\nOK,300,200,150\nBAD,notanumber,200,150\n"
++    out = _call("ingest_wms_csv", {"csv_text": csv})
++    assert len(out["boxes"]) == 1
++    assert out["rows_skipped"] == 1
++
++
++def test_ingest_then_optimize_pipeline() -> None:
++    ingested = _call("ingest_wms_csv", {"csv_text": MESSY_CSV})
++    plan = _call("optimize_pallet", {"boxes": ingested["boxes"]})
++    assert plan["placements"]
++    assert 0.0 <= plan["stability_score"] <= 1.0
++
++
++def test_optimize_missing_required_field_errors_cleanly() -> None:
++    # A box missing length_mm should surface as a JSON-RPC error, not a hang.
++    resp = _dispatch("initialize", {}, use_llm=False)  # sanity
++    assert resp
++    with pytest.raises((KeyError, ValueError, TypeError)):
++        _call("optimize_pallet", {"boxes": [{"sku_id": "x", "width_mm": 1, "height_mm": 1}]})
++
++
++def test_stdio_roundtrip_end_to_end() -> None:
++    """One real subprocess round-trip over stdio to prove the wire protocol."""
++    proc = subprocess.Popen(
++        [sys.executable, "-m", "mcp.server"],
++        stdin=subprocess.PIPE,
++        stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE,
++        text=True,
++    )
++    try:
++        assert proc.stdin and proc.stdout
++        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n")
++        proc.stdin.flush()
++        reply = json.loads(proc.stdout.readline())
++        assert reply["id"] == 1
++        assert reply["result"]["serverInfo"]["name"] == "palletizer"
++
++        # Malformed JSON on the wire must not kill the server; next request still answered.
++        proc.stdin.write("this is not json\n")
++        proc.stdin.flush()
++        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n")
++        proc.stdin.flush()
++        reply2 = json.loads(proc.stdout.readline())
++        assert reply2["id"] == 2
++        assert len(reply2["result"]["tools"]) == 3
++    finally:
++        proc.terminate()
+diff --git a/tests/test_native_invariants.py b/tests/test_native_invariants.py
+new file mode 100644
+index 0000000..0b04691
+--- /dev/null
++++ b/tests/test_native_invariants.py
+@@ -0,0 +1,117 @@
++"""Stress + invariant tests for the optional native C++ packer.
++
++These guard the two promises the native path makes:
++  1. It is safe: every placement stays inside the pallet, no same-layer
++     footprint overlaps, deterministic output, sane edge-case handling.
++  2. It is optional: if the compiled module is absent, the Python fallback
++     still returns a valid result (the non-breaking guarantee).
++
++Nothing here asserts the native packer is bit-identical to optimize_pallet —
++it deliberately is not. It asserts the native output is *valid*, which is what
++matters for an opt-in accelerator.
++"""
++
++from __future__ import annotations
++
++import random
++from collections import defaultdict
++
++import pytest
++
++from native import accelerator
++from palletizer_full.optimizer import Box, Pallet
++
++PALLET = Pallet()
++
++
++def _boxes(n: int, seed: int) -> list[Box]:
++    r = random.Random(seed)
++    return [
++        Box(
++            sku_id=f"S{i}",
++            length_mm=r.choice([200, 300, 400, 600]),
++            width_mm=r.choice([150, 200, 300, 400]),
++            height_mm=r.choice([120, 150, 200]),
++            weight_kg=r.uniform(1, 8),
++        )
++        for i in range(n)
++    ]
++
++
++def _within_bounds(p: dict) -> bool:
++    return (
++        p["x_mm"] >= -1e-6
++        and p["y_mm"] >= -1e-6
++        and p["x_mm"] + p["length_mm"] <= PALLET.length_mm + 1e-6
++        and p["y_mm"] + p["width_mm"] <= PALLET.width_mm + 1e-6
++        and p["z_mm"] + p["height_mm"] <= PALLET.max_height_mm + 1e-6
++    )
++
++
++def _same_layer_overlaps(placements: list[dict]) -> int:
++    layers: dict[int, list[dict]] = defaultdict(list)
++    for p in placements:
++        layers[p["layer"]].append(p)
++    overlaps = 0
++    for lp in layers.values():
++        for i in range(len(lp)):
++            for j in range(i + 1, len(lp)):
++                a, c = lp[i], lp[j]
++                ox = max(0.0, min(a["x_mm"] + a["length_mm"], c["x_mm"] + c["length_mm"]) - max(a["x_mm"], c["x_mm"]))
++                oy = max(0.0, min(a["y_mm"] + a["width_mm"], c["y_mm"] + c["width_mm"]) - max(a["y_mm"], c["y_mm"]))
++                if ox > 1e-6 and oy > 1e-6:
++                    overlaps += 1
++    return overlaps
++
++
++@pytest.mark.parametrize("n", [1, 10, 50, 200, 800, 2000])
++def test_native_placements_within_pallet(n: int) -> None:
++    res = accelerator.fast_pack(_boxes(n, n), PALLET)
++    assert all(_within_bounds(p) for p in res["placements"])
++
++
++@pytest.mark.parametrize("n", [50, 200, 800])
++def test_native_no_same_layer_overlap(n: int) -> None:
++    res = accelerator.fast_pack(_boxes(n, n), PALLET)
++    assert _same_layer_overlaps(res["placements"]) == 0
++
++
++def test_native_is_deterministic() -> None:
++    boxes = _boxes(300, 42)
++    assert accelerator.fast_pack(boxes, PALLET) == accelerator.fast_pack(boxes, PALLET)
++
++
++def test_native_stack_within_height() -> None:
++    res = accelerator.fast_pack(_boxes(500, 3), PALLET)
++    assert res["stack_height_mm"] <= PALLET.max_height_mm + 1e-6
++
++
++def test_native_empty_input() -> None:
++    res = accelerator.fast_pack([], PALLET)
++    assert res["placements"] == []
++    assert res["num_layers"] == 0
++
++
++def test_native_oversized_box_is_unplaced() -> None:
++    res = accelerator.fast_pack([Box("big", 5000, 5000, 150, 2)], PALLET)
++    assert res["placements"] == []
++    assert "big" in res["unplaced"]
++
++
++def test_native_conserves_or_flags_every_sku() -> None:
++    """Every input SKU is either placed or reported unplaced — nothing vanishes."""
++    boxes = _boxes(400, 9)
++    res = accelerator.fast_pack(boxes, PALLET)
++    accounted = {p["sku_id"] for p in res["placements"]} | set(res["unplaced"])
++    assert {b.sku_id for b in boxes} <= accounted
++
++
++def test_fallback_returns_valid_plan_without_native(monkeypatch: pytest.MonkeyPatch) -> None:
++    """Simulate the native module being unbuilt: fast_pack must still work."""
++    monkeypatch.setattr(accelerator, "_NATIVE", None)
++    monkeypatch.setattr(accelerator, "_LOAD_TRIED", True)
++    # available() now reports False; fast_pack must fall through to Python.
++    assert accelerator.available() is False
++    res = accelerator.fast_pack(_boxes(60, 5), PALLET)
++    assert res["placements"], "Python fallback returned no placements"
++    assert all(_within_bounds(p) for p in res["placements"])
+-- 
+2.43.0
+
