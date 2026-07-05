@@ -44,3 +44,6 @@ web/.next/
 .vercel
 .env*
 data/
+
+# integration delivery artifacts
+palletizer-construction-integration*
