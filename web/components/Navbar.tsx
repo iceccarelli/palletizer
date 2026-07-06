@@ -46,6 +46,8 @@ const MENUS: MenuDef[] = [
         title: "Tools",
         links: [
           { href: "/demo", label: "Live Optimizer", desc: "Upload your SKU CSV, get a validated plan" },
+          { href: "/wms-ingest", label: "WMS Ingestion", desc: "Paste your export, get a validated plan" },
+          { href: "/arm-library", label: "Arm Library", desc: "Same engine, UR / FANUC / KUKA arms" },
           { href: "/roi-calculator", label: "ROI Calculator", desc: "Your operations numbers, your savings" },
           { href: "/pricing", label: "Pricing", desc: "Open core, paid deployment & support" },
         ],
