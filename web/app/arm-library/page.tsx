@@ -9,7 +9,7 @@
 
 import React, { Suspense, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { ContactShadows, OrbitControls, Environment, Lightformer } from '@react-three/drei';
+import { ContactShadows, OrbitControls, Environment, Lightformer, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import Link from 'next/link';
 import { Play, Pause } from 'lucide-react';
@@ -22,6 +22,7 @@ import { BEVERAGE_SKUS } from '@/lib/palletizer/sampleData';
 export default function ArmLibraryPage() {
   const [profileId, setProfileId] = useState(ROBOT_PROFILES[0].id);
   const [running, setRunning] = useState(true);
+  const [runNonce, setRunNonce] = useState(0);
   const [speed, setSpeed] = useState(1);
 
   const profile = profileById(profileId);
@@ -47,6 +48,7 @@ export default function ArmLibraryPage() {
             camera={{ position: [3.2, 2.6, 3.4], fov: 42 }}
             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
           >
+            <fog attach="fog" args={['#0b1120', 9, 24]} />
             {/* three-point rig: cool ambient, warm key, cool fill, soft spot */}
             <hemisphereLight args={['#dbeafe', '#0b1120', 0.5]} />
             <directionalLight
@@ -64,9 +66,27 @@ export default function ArmLibraryPage() {
               <Lightformer form="rect" intensity={0.8} position={[-4, 2, -2]} scale={[3, 3, 1]} color="#bfdbfe" />
               <Lightformer form="ring" intensity={1.2} position={[3, 3, 3]} scale={2} color="#fde68a" />
             </Environment>
+            {/* professional floor: technical grid over a dark ground plane */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
+              <planeGeometry args={[60, 60]} />
+              <meshStandardMaterial color="#0b1120" roughness={1} metalness={0} />
+            </mesh>
+            <Grid
+              position={[0, -0.048, 0]}
+              args={[40, 40]}
+              cellSize={0.5}
+              cellThickness={0.6}
+              cellColor="#1e293b"
+              sectionSize={2.5}
+              sectionThickness={1}
+              sectionColor="#334155"
+              fadeDistance={18}
+              fadeStrength={1.6}
+              infiniteGrid
+            />
             <Suspense fallback={null}>
               <ProfiledArm
-                key={profile.id}
+                key={`${profile.id}-${runNonce}`}
                 profile={profile}
                 boxes={plan.boxes}
                 pallet={DEFAULT_PALLET}
@@ -86,6 +106,12 @@ export default function ArmLibraryPage() {
             >
               {running ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               {running ? 'Pause' : 'Run'}
+            </button>
+            <button
+              onClick={() => { setRunNonce((n) => n + 1); setRunning(true); }}
+              className="inline-flex items-center gap-1.5 rounded bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20"
+            >
+              Replay
             </button>
             <label className="flex items-center gap-2 text-[11px] text-white/60">
               Speed
