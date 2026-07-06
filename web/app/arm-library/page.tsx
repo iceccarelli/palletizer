@@ -9,7 +9,7 @@
 
 import React, { Suspense, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { ContactShadows, OrbitControls } from '@react-three/drei';
+import { ContactShadows, OrbitControls, Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import Link from 'next/link';
 import { Play, Pause } from 'lucide-react';
@@ -41,9 +41,29 @@ export default function ArmLibraryPage() {
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_300px]">
         {/* Viewport */}
         <div className="relative h-[460px] overflow-hidden rounded-xl border border-white/10 bg-[#0b1120]">
-          <Canvas shadows camera={{ position: [3.2, 2.6, 3.4], fov: 42 }}>
-            <ambientLight intensity={0.55} />
-            <directionalLight position={[4, 6, 3]} intensity={1.1} castShadow />
+          <Canvas
+            shadows
+            dpr={[1, 2]}
+            camera={{ position: [3.2, 2.6, 3.4], fov: 42 }}
+            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+          >
+            {/* three-point rig: cool ambient, warm key, cool fill, soft spot */}
+            <hemisphereLight args={['#dbeafe', '#0b1120', 0.5]} />
+            <directionalLight
+              position={[5, 7, 4]}
+              intensity={2.1}
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+            />
+            <directionalLight position={[-4, 3, -3]} intensity={0.5} color="#93c5fd" />
+            <spotLight position={[-2, 5, 4]} angle={0.5} penumbra={0.8} intensity={0.7} />
+            {/* procedural image-based lighting — real reflections on metal, no HDRI asset */}
+            <Environment resolution={256}>
+              <Lightformer form="rect" intensity={2} position={[0, 4, 2]} scale={[6, 3, 1]} color="#ffffff" />
+              <Lightformer form="rect" intensity={0.8} position={[-4, 2, -2]} scale={[3, 3, 1]} color="#bfdbfe" />
+              <Lightformer form="ring" intensity={1.2} position={[3, 3, 3]} scale={2} color="#fde68a" />
+            </Environment>
             <Suspense fallback={null}>
               <ProfiledArm
                 key={profile.id}
@@ -54,7 +74,7 @@ export default function ArmLibraryPage() {
                 running={running}
                 speed={speed}
               />
-              <ContactShadows position={[0, -0.045, 0]} opacity={0.4} scale={12} blur={2.2} far={2.4} />
+              <ContactShadows position={[0, -0.045, 0]} opacity={0.55} scale={14} blur={2.6} far={3} resolution={1024} color="#000000" />
             </Suspense>
             <OrbitControls target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={2} maxDistance={9} />
           </Canvas>
