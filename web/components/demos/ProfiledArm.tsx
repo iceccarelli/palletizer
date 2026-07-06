@@ -144,51 +144,51 @@ export function ProfiledArm({
       <group position={base.toArray()}>
         <mesh position={[0, 0.09, 0]} castShadow receiveShadow>
           <cylinderGeometry args={[v.baseRadius * 0.85, v.baseRadius, 0.18, 28]} />
-          <meshStandardMaterial color={v.accent} roughness={0.7} metalness={0.3} />
+          <meshStandardMaterial color={v.accent} roughness={0.45} metalness={0.7} envMapIntensity={0.8} />
         </mesh>
         <group ref={yawRef}>
           <mesh position={[0, 0.38, 0]} castShadow>
             <cylinderGeometry args={[v.baseRadius * 0.55, v.baseRadius * 0.7, 0.48, 24]} />
-            <meshStandardMaterial color={v.color} roughness={0.45} metalness={0.25} />
+            <meshStandardMaterial color={v.color} roughness={0.34} metalness={0.82} envMapIntensity={0.9} />
           </mesh>
           <mesh position={[0, SHOULDER_H, 0]} castShadow>
             <sphereGeometry args={[0.16 * v.scale, 20, 16]} />
-            <meshStandardMaterial color={v.accent} roughness={0.5} metalness={0.4} />
+            <meshStandardMaterial color={v.accent} roughness={0.3} metalness={0.92} envMapIntensity={1} />
           </mesh>
           <group position={[0, SHOULDER_H, 0]} ref={shoulderRef}>
             {/* upper link */}
             <mesh position={[0, 0, LINK1 / 2]} castShadow>
               <boxGeometry args={[0.16 * v.scale, 0.2 * v.scale, LINK1]} />
-              <meshStandardMaterial color={v.color} roughness={0.45} metalness={0.25} />
+              <meshStandardMaterial color={v.color} roughness={0.34} metalness={0.82} envMapIntensity={0.9} />
             </mesh>
             {/* cosmetic parallel back-link for palletizer silhouettes */}
             {v.parallelLink && (
               <group ref={backLinkRef}>
                 <mesh position={[0, 0.14 * v.scale, LINK1 * 0.45]} castShadow>
                   <boxGeometry args={[0.07 * v.scale, 0.07 * v.scale, LINK1 * 0.9]} />
-                  <meshStandardMaterial color={v.accent} roughness={0.5} metalness={0.4} />
+                  <meshStandardMaterial color={v.accent} roughness={0.3} metalness={0.92} envMapIntensity={1} />
                 </mesh>
               </group>
             )}
             <group position={[0, 0, LINK1]}>
               <mesh castShadow>
                 <sphereGeometry args={[0.12 * v.scale, 20, 16]} />
-                <meshStandardMaterial color={v.accent} roughness={0.5} metalness={0.4} />
+                <meshStandardMaterial color={v.accent} roughness={0.3} metalness={0.92} envMapIntensity={1} />
               </mesh>
               <group ref={elbowRef}>
                 <mesh position={[0, 0, LINK2 / 2]} castShadow>
                   <boxGeometry args={[0.12 * v.scale, 0.15 * v.scale, LINK2]} />
-                  <meshStandardMaterial color={v.color} roughness={0.45} metalness={0.25} />
+                  <meshStandardMaterial color={v.color} roughness={0.34} metalness={0.82} envMapIntensity={0.9} />
                 </mesh>
                 <group position={[0, 0, LINK2]}>
                   <group ref={wristRef}>
                     <mesh position={[0, -0.11, 0]} castShadow>
                       <cylinderGeometry args={[0.05, 0.05, 0.22, 14]} />
-                      <meshStandardMaterial color={v.accent} metalness={0.5} roughness={0.4} />
+                      <meshStandardMaterial color={v.accent} metalness={0.88} roughness={0.28} envMapIntensity={1} />
                     </mesh>
                     <mesh position={[0, -0.235, 0]} castShadow>
                       <boxGeometry args={[0.3, 0.035, 0.34]} />
-                      <meshStandardMaterial color={v.accent} roughness={0.6} />
+                      <meshStandardMaterial color={v.accent} roughness={0.4} metalness={0.6} envMapIntensity={0.8} />
                     </mesh>
                     <group ref={carriedRef} position={[0, -0.272, 0]} visible={false}>
                       {boxes[state.current.index] && (
