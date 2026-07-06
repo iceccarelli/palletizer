@@ -12,7 +12,7 @@
 // This is a stylised representation of each mechanism, not a CAD model — the
 // demo page says so.
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Placement, PalletSpec } from '@/lib/palletizer/types';
@@ -20,12 +20,6 @@ import { RobotProfile } from '@/lib/palletizer/robotProfiles';
 
 const MM = 0.001;
 const easeInOut = (t: number) => t * t * (3 - 2 * t);
-
-interface ArmState {
-  index: number; // which placement is being placed
-  progress: number; // 0..1 within the current pick->place cycle
-  placed: number; // how many boxes have landed
-}
 
 function boxTarget(p: Placement, pallet: PalletSpec, deckTop: number): THREE.Vector3 {
   return new THREE.Vector3(
@@ -76,7 +70,9 @@ export function ProfiledArm({
   const carriedRef = useRef<THREE.Group>(null);
 
   const base = useMemo(() => new THREE.Vector3(pick.x - 1.1, 0, pick.z), [pick]);
-  const state = useRef<ArmState>({ index: 0, progress: 0, placed: 0 });
+  const [placedCount, setPlacedCount] = useState(0);
+  const placedRef = useRef(0);
+  const progressRef = useRef(0);
   const smooth = useRef({ yaw: 0, shoulder: 0.6, elbow: -1.2, tcp: pick.clone().setY(safeH), carrying: false });
 
   // Motion pace scales with real joint speed: faster arm = shorter cycle.
@@ -98,22 +94,23 @@ export function ProfiledArm({
   }
 
   useFrame((_, dt) => {
-    const st = state.current;
-    if (running && boxes.length > 0) {
-      st.progress += (dt * speed) / cycleS;
-      if (st.progress >= 1) {
-        st.progress = 0;
-        st.placed = Math.min(st.placed + 1, boxes.length);
-        st.index = st.placed % boxes.length;
+    // Advance only while boxes remain. When the build completes the arm parks
+    // and the finished stack stays put — nothing loops, nothing vanishes.
+    if (running && placedRef.current < boxes.length) {
+      progressRef.current += (dt * speed) / cycleS;
+      if (progressRef.current >= 1) {
+        progressRef.current = 0;
+        placedRef.current += 1;
+        setPlacedCount(placedRef.current); // re-render so the landed box persists
       }
     }
 
-    const active = boxes[st.index];
+    const active = placedRef.current < boxes.length ? boxes[placedRef.current] : null;
     const s = smooth.current;
     let target = pick.clone().setY(safeH);
     let carrying = false;
     if (active) {
-      const res = tcpOnPath(THREE.MathUtils.clamp(st.progress, 0, 1), pick, boxTarget(active, pallet, 0.04), safeH);
+      const res = tcpOnPath(THREE.MathUtils.clamp(progressRef.current, 0, 1), pick, boxTarget(active, pallet, 0.04), safeH);
       target = res.tcp;
       carrying = res.carrying;
     }
@@ -136,7 +133,7 @@ export function ProfiledArm({
     if (carriedRef.current) carriedRef.current.visible = s.carrying && !!active;
   });
 
-  const placedBoxes = boxes.slice(0, state.current.placed);
+  const placedBoxes = boxes.slice(0, placedCount);
 
   return (
     <group>
@@ -191,16 +188,16 @@ export function ProfiledArm({
                       <meshStandardMaterial color={v.accent} roughness={0.4} metalness={0.6} envMapIntensity={0.8} />
                     </mesh>
                     <group ref={carriedRef} position={[0, -0.272, 0]} visible={false}>
-                      {boxes[state.current.index] && (
-                        <mesh position={[0, -(boxes[state.current.index].height_mm * MM) / 2, 0]} castShadow>
+                      {placedCount < boxes.length && (
+                        <mesh position={[0, -(boxes[placedCount].height_mm * MM) / 2, 0]} castShadow>
                           <boxGeometry
                             args={[
-                              boxes[state.current.index].length_mm * MM,
-                              boxes[state.current.index].height_mm * MM,
-                              boxes[state.current.index].width_mm * MM,
+                              boxes[placedCount].length_mm * MM,
+                              boxes[placedCount].height_mm * MM,
+                              boxes[placedCount].width_mm * MM,
                             ]}
                           />
-                          <meshStandardMaterial color={LAYER_COLORS[boxes[state.current.index].layer % LAYER_COLORS.length]} roughness={0.7} />
+                          <meshStandardMaterial color={LAYER_COLORS[boxes[placedCount].layer % LAYER_COLORS.length]} roughness={0.7} />
                         </mesh>
                       )}
                     </group>
@@ -210,6 +207,39 @@ export function ProfiledArm({
             </group>
           </group>
         </group>
+      </group>
+
+      {/* infeed conveyor — feeds the next cartons toward the pick point */}
+      <group>
+        <mesh position={[pick.x, pick.y - 0.14, pick.z + 0.95]} receiveShadow castShadow>
+          <boxGeometry args={[0.56, 0.08, 1.9]} />
+          <meshStandardMaterial color="#111827" roughness={0.85} metalness={0.2} envMapIntensity={0.4} />
+        </mesh>
+        {[-0.3, 0.3].map((ox) => (
+          <mesh key={ox} position={[pick.x + ox, pick.y - 0.1, pick.z + 0.95]}>
+            <boxGeometry args={[0.04, 0.1, 1.9]} />
+            <meshStandardMaterial color="#475569" metalness={0.7} roughness={0.4} envMapIntensity={0.8} />
+          </mesh>
+        ))}
+        {[pick.z + 0.3, pick.z + 1.6].map((z) =>
+          [-0.24, 0.24].map((ox) => (
+            <mesh key={`${z}-${ox}`} position={[pick.x + ox, (pick.y - 0.14) / 2, z]}>
+              <boxGeometry args={[0.05, pick.y - 0.14, 0.05]} />
+              <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.6} />
+            </mesh>
+          )),
+        )}
+        {/* upcoming cartons queued on the belt (real dims + layer colours) */}
+        {[1, 2, 3].map((k) => {
+          const b = boxes[placedCount + k];
+          if (!b) return null;
+          return (
+            <mesh key={`up-${k}`} position={[pick.x, pick.y - 0.03, pick.z + 0.45 + k * 0.42]} castShadow receiveShadow>
+              <boxGeometry args={[b.length_mm * MM, b.height_mm * MM, b.width_mm * MM]} />
+              <meshStandardMaterial color={LAYER_COLORS[b.layer % LAYER_COLORS.length]} roughness={0.85} />
+            </mesh>
+          );
+        })}
       </group>
 
       {/* pallet deck */}
