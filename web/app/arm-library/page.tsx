@@ -45,7 +45,7 @@ export default function ArmLibraryPage() {
           <Canvas
             shadows
             dpr={[1, 2]}
-            camera={{ position: [3.2, 2.6, 3.4], fov: 42 }}
+            camera={{ position: [4.8, 3.4, 5.2], fov: 42 }}
             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
           >
             <fog attach="fog" args={['#0b1120', 9, 24]} />
@@ -94,9 +94,9 @@ export default function ArmLibraryPage() {
                 running={running}
                 speed={speed}
               />
-              <ContactShadows position={[0, -0.045, 0]} opacity={0.55} scale={14} blur={2.6} far={3} resolution={1024} color="#000000" />
+              <ContactShadows position={[0, -0.045, 0]} opacity={0.5} scale={18} blur={2.8} far={3.5} resolution={1024} color="#000000" />
             </Suspense>
-            <OrbitControls target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={2} maxDistance={9} />
+            <OrbitControls target={[0, 0.4, 0]} maxPolarAngle={Math.PI / 2.05} minDistance={2.5} maxDistance={14} />
           </Canvas>
 
           <div className="absolute bottom-3 left-3 flex items-center gap-3 rounded-lg bg-black/50 px-3 py-2 backdrop-blur">
