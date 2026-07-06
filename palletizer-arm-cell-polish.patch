@@ -1,0 +1,241 @@
+From 3c4774e45611ab86cacb6a0d459876d00d797faf Mon Sep 17 00:00:00 2001
+From: Vincenzo Grimaldi <vincenzo@igrimaldi.engineering>
+Date: Mon, 6 Jul 2026 13:57:36 +0000
+Subject: [PATCH] fix(arm-library): grounded floor, conveyor feed, boxes no
+ longer vanish
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Animation is now state-driven (useState placedCount): the arm places each
+  box once and parks when the build completes. Removes the modulo loop that
+  made it re-grab box 0 forever and made placed boxes flicker/disappear.
+- Add an infeed conveyor (belt, rails, legs) with the next real cartons queued
+  and advancing as they are picked.
+- Add a professional floor: drei <Grid> technical grid over a dark ground
+  plane, plus scene fog for depth — replaces the bare floating plane.
+- Add a Replay control (remounts via nonce) since the build no longer loops.
+
+Still schematic geometry (no CAD/GLB). Typecheck clean; parity PASS; no engine
+change.
+---
+ web/app/arm-library/page.tsx         | 30 ++++++++++-
+ web/components/demos/ProfiledArm.tsx | 78 +++++++++++++++++++---------
+ 2 files changed, 82 insertions(+), 26 deletions(-)
+
+diff --git a/web/app/arm-library/page.tsx b/web/app/arm-library/page.tsx
+index 4d887ac..90c2b20 100644
+--- a/web/app/arm-library/page.tsx
++++ b/web/app/arm-library/page.tsx
+@@ -9,7 +9,7 @@
+ 
+ import React, { Suspense, useMemo, useState } from 'react';
+ import { Canvas } from '@react-three/fiber';
+-import { ContactShadows, OrbitControls, Environment, Lightformer } from '@react-three/drei';
++import { ContactShadows, OrbitControls, Environment, Lightformer, Grid } from '@react-three/drei';
+ import * as THREE from 'three';
+ import Link from 'next/link';
+ import { Play, Pause } from 'lucide-react';
+@@ -22,6 +22,7 @@ import { BEVERAGE_SKUS } from '@/lib/palletizer/sampleData';
+ export default function ArmLibraryPage() {
+   const [profileId, setProfileId] = useState(ROBOT_PROFILES[0].id);
+   const [running, setRunning] = useState(true);
++  const [runNonce, setRunNonce] = useState(0);
+   const [speed, setSpeed] = useState(1);
+ 
+   const profile = profileById(profileId);
+@@ -47,6 +48,7 @@ export default function ArmLibraryPage() {
+             camera={{ position: [3.2, 2.6, 3.4], fov: 42 }}
+             gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+           >
++            <fog attach="fog" args={['#0b1120', 9, 24]} />
+             {/* three-point rig: cool ambient, warm key, cool fill, soft spot */}
+             <hemisphereLight args={['#dbeafe', '#0b1120', 0.5]} />
+             <directionalLight
+@@ -64,9 +66,27 @@ export default function ArmLibraryPage() {
+               <Lightformer form="rect" intensity={0.8} position={[-4, 2, -2]} scale={[3, 3, 1]} color="#bfdbfe" />
+               <Lightformer form="ring" intensity={1.2} position={[3, 3, 3]} scale={2} color="#fde68a" />
+             </Environment>
++            {/* professional floor: technical grid over a dark ground plane */}
++            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
++              <planeGeometry args={[60, 60]} />
++              <meshStandardMaterial color="#0b1120" roughness={1} metalness={0} />
++            </mesh>
++            <Grid
++              position={[0, -0.048, 0]}
++              args={[40, 40]}
++              cellSize={0.5}
++              cellThickness={0.6}
++              cellColor="#1e293b"
++              sectionSize={2.5}
++              sectionThickness={1}
++              sectionColor="#334155"
++              fadeDistance={18}
++              fadeStrength={1.6}
++              infiniteGrid
++            />
+             <Suspense fallback={null}>
+               <ProfiledArm
+-                key={profile.id}
++                key={`${profile.id}-${runNonce}`}
+                 profile={profile}
+                 boxes={plan.boxes}
+                 pallet={DEFAULT_PALLET}
+@@ -87,6 +107,12 @@ export default function ArmLibraryPage() {
+               {running ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+               {running ? 'Pause' : 'Run'}
+             </button>
++            <button
++              onClick={() => { setRunNonce((n) => n + 1); setRunning(true); }}
++              className="inline-flex items-center gap-1.5 rounded bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20"
++            >
++              Replay
++            </button>
+             <label className="flex items-center gap-2 text-[11px] text-white/60">
+               Speed
+               <input type="range" min={0.25} max={3} step={0.25} value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} />
+diff --git a/web/components/demos/ProfiledArm.tsx b/web/components/demos/ProfiledArm.tsx
+index 92659f0..7cf2f4c 100644
+--- a/web/components/demos/ProfiledArm.tsx
++++ b/web/components/demos/ProfiledArm.tsx
+@@ -12,7 +12,7 @@
+ // This is a stylised representation of each mechanism, not a CAD model — the
+ // demo page says so.
+ 
+-import React, { useMemo, useRef } from 'react';
++import React, { useMemo, useRef, useState } from 'react';
+ import { useFrame } from '@react-three/fiber';
+ import * as THREE from 'three';
+ import { Placement, PalletSpec } from '@/lib/palletizer/types';
+@@ -21,12 +21,6 @@ import { RobotProfile } from '@/lib/palletizer/robotProfiles';
+ const MM = 0.001;
+ const easeInOut = (t: number) => t * t * (3 - 2 * t);
+ 
+-interface ArmState {
+-  index: number; // which placement is being placed
+-  progress: number; // 0..1 within the current pick->place cycle
+-  placed: number; // how many boxes have landed
+-}
+-
+ function boxTarget(p: Placement, pallet: PalletSpec, deckTop: number): THREE.Vector3 {
+   return new THREE.Vector3(
+     (p.x_mm + p.length_mm / 2 - pallet.length_mm / 2) * MM,
+@@ -76,7 +70,9 @@ export function ProfiledArm({
+   const carriedRef = useRef<THREE.Group>(null);
+ 
+   const base = useMemo(() => new THREE.Vector3(pick.x - 1.1, 0, pick.z), [pick]);
+-  const state = useRef<ArmState>({ index: 0, progress: 0, placed: 0 });
++  const [placedCount, setPlacedCount] = useState(0);
++  const placedRef = useRef(0);
++  const progressRef = useRef(0);
+   const smooth = useRef({ yaw: 0, shoulder: 0.6, elbow: -1.2, tcp: pick.clone().setY(safeH), carrying: false });
+ 
+   // Motion pace scales with real joint speed: faster arm = shorter cycle.
+@@ -98,22 +94,23 @@ export function ProfiledArm({
+   }
+ 
+   useFrame((_, dt) => {
+-    const st = state.current;
+-    if (running && boxes.length > 0) {
+-      st.progress += (dt * speed) / cycleS;
+-      if (st.progress >= 1) {
+-        st.progress = 0;
+-        st.placed = Math.min(st.placed + 1, boxes.length);
+-        st.index = st.placed % boxes.length;
++    // Advance only while boxes remain. When the build completes the arm parks
++    // and the finished stack stays put — nothing loops, nothing vanishes.
++    if (running && placedRef.current < boxes.length) {
++      progressRef.current += (dt * speed) / cycleS;
++      if (progressRef.current >= 1) {
++        progressRef.current = 0;
++        placedRef.current += 1;
++        setPlacedCount(placedRef.current); // re-render so the landed box persists
+       }
+     }
+ 
+-    const active = boxes[st.index];
++    const active = placedRef.current < boxes.length ? boxes[placedRef.current] : null;
+     const s = smooth.current;
+     let target = pick.clone().setY(safeH);
+     let carrying = false;
+     if (active) {
+-      const res = tcpOnPath(THREE.MathUtils.clamp(st.progress, 0, 1), pick, boxTarget(active, pallet, 0.04), safeH);
++      const res = tcpOnPath(THREE.MathUtils.clamp(progressRef.current, 0, 1), pick, boxTarget(active, pallet, 0.04), safeH);
+       target = res.tcp;
+       carrying = res.carrying;
+     }
+@@ -136,7 +133,7 @@ export function ProfiledArm({
+     if (carriedRef.current) carriedRef.current.visible = s.carrying && !!active;
+   });
+ 
+-  const placedBoxes = boxes.slice(0, state.current.placed);
++  const placedBoxes = boxes.slice(0, placedCount);
+ 
+   return (
+     <group>
+@@ -191,16 +188,16 @@ export function ProfiledArm({
+                       <meshStandardMaterial color={v.accent} roughness={0.4} metalness={0.6} envMapIntensity={0.8} />
+                     </mesh>
+                     <group ref={carriedRef} position={[0, -0.272, 0]} visible={false}>
+-                      {boxes[state.current.index] && (
+-                        <mesh position={[0, -(boxes[state.current.index].height_mm * MM) / 2, 0]} castShadow>
++                      {placedCount < boxes.length && (
++                        <mesh position={[0, -(boxes[placedCount].height_mm * MM) / 2, 0]} castShadow>
+                           <boxGeometry
+                             args={[
+-                              boxes[state.current.index].length_mm * MM,
+-                              boxes[state.current.index].height_mm * MM,
+-                              boxes[state.current.index].width_mm * MM,
++                              boxes[placedCount].length_mm * MM,
++                              boxes[placedCount].height_mm * MM,
++                              boxes[placedCount].width_mm * MM,
+                             ]}
+                           />
+-                          <meshStandardMaterial color={LAYER_COLORS[boxes[state.current.index].layer % LAYER_COLORS.length]} roughness={0.7} />
++                          <meshStandardMaterial color={LAYER_COLORS[boxes[placedCount].layer % LAYER_COLORS.length]} roughness={0.7} />
+                         </mesh>
+                       )}
+                     </group>
+@@ -212,6 +209,39 @@ export function ProfiledArm({
+         </group>
+       </group>
+ 
++      {/* infeed conveyor — feeds the next cartons toward the pick point */}
++      <group>
++        <mesh position={[pick.x, pick.y - 0.14, pick.z + 0.95]} receiveShadow castShadow>
++          <boxGeometry args={[0.56, 0.08, 1.9]} />
++          <meshStandardMaterial color="#111827" roughness={0.85} metalness={0.2} envMapIntensity={0.4} />
++        </mesh>
++        {[-0.3, 0.3].map((ox) => (
++          <mesh key={ox} position={[pick.x + ox, pick.y - 0.1, pick.z + 0.95]}>
++            <boxGeometry args={[0.04, 0.1, 1.9]} />
++            <meshStandardMaterial color="#475569" metalness={0.7} roughness={0.4} envMapIntensity={0.8} />
++          </mesh>
++        ))}
++        {[pick.z + 0.3, pick.z + 1.6].map((z) =>
++          [-0.24, 0.24].map((ox) => (
++            <mesh key={`${z}-${ox}`} position={[pick.x + ox, (pick.y - 0.14) / 2, z]}>
++              <boxGeometry args={[0.05, pick.y - 0.14, 0.05]} />
++              <meshStandardMaterial color="#334155" metalness={0.5} roughness={0.6} />
++            </mesh>
++          )),
++        )}
++        {/* upcoming cartons queued on the belt (real dims + layer colours) */}
++        {[1, 2, 3].map((k) => {
++          const b = boxes[placedCount + k];
++          if (!b) return null;
++          return (
++            <mesh key={`up-${k}`} position={[pick.x, pick.y - 0.03, pick.z + 0.45 + k * 0.42]} castShadow receiveShadow>
++              <boxGeometry args={[b.length_mm * MM, b.height_mm * MM, b.width_mm * MM]} />
++              <meshStandardMaterial color={LAYER_COLORS[b.layer % LAYER_COLORS.length]} roughness={0.85} />
++            </mesh>
++          );
++        })}
++      </group>
++
+       {/* pallet deck */}
+       <mesh position={[0, 0.02, 0]} receiveShadow>
+         <boxGeometry args={[pallet.length_mm * MM, 0.04, pallet.width_mm * MM]} />
+-- 
+2.43.0
+
