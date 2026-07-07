@@ -1,24 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { toast } from "sonner";
+import { useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-export default function SignIn() {
+function SignInForm() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const params = useSearchParams();
+  const next = params.get("next") ?? "/billing";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const redirectTo = () =>
+    `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback?next=${encodeURIComponent(next)}`;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo() },
+      });
+      if (error) throw error;
+      toast.success("Magic link sent!", {
+        description: "Check " + email + " for a secure sign-in link.",
+      });
+    } catch (err) {
+      toast.error("Could not send link", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
       setLoading(false);
-      toast.success("Magic link sent!", { description: "Check " + email + " for secure access to your dashboard and optimizer history." });
-    }, 850);
+    }
   };
 
-  const oauth = (provider: string) =>
-    toast(provider + " SSO coming soon", { description: "Use the magic link above for instant access while SSO is in setup." });
+  const oauth = async (provider: "google" | "github") => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: redirectTo() },
+      });
+      if (error) throw error;
+    } catch (err) {
+      toast.error("Sign-in failed", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0f172a] pt-24 pb-12 px-6">
@@ -56,20 +88,23 @@ export default function SignIn() {
           <div className="my-6 text-center text-xs text-white/50">or</div>
 
           <div className="space-y-3">
-            <button onClick={() => oauth("Google")} className="w-full py-3.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center justify-center gap-3 text-sm font-medium transition">
+            <button onClick={() => oauth("google")} className="w-full py-3.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center justify-center gap-3 text-sm font-medium transition">
               Continue with Google
             </button>
-            <button onClick={() => oauth("GitHub")} className="w-full py-3.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center justify-center gap-3 text-sm font-medium transition">
+            <button onClick={() => oauth("github")} className="w-full py-3.5 border border-white/20 hover:bg-white/5 rounded-2xl flex items-center justify-center gap-3 text-sm font-medium transition">
               Continue with GitHub
             </button>
           </div>
         </div>
-
-        <p className="text-center text-xs text-white/50 mt-8">
-          By signing in you agree to our <Link href="/terms" className="underline hover:text-white">Terms</Link> and <Link href="/privacy" className="underline hover:text-white">Privacy Policy</Link>.<br />
-          Enterprise SSO &amp; SAML available.
-        </p>
       </div>
     </div>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
+      <SignInForm />
+    </Suspense>
   );
 }
