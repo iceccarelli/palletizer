@@ -2,12 +2,13 @@
 // Returns a Stripe Billing Portal URL for the signed-in user to manage their
 // subscription, payment method, and invoices.
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe/server';
+import { getStripe } from '@/lib/stripe/server';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
+  const stripe = getStripe();
   const supabase = await createClient();
   const {
     data: { user },

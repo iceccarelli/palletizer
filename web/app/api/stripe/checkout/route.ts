@@ -8,7 +8,7 @@
 //    so a caller cannot inject an arbitrary Stripe price.
 //  - Stripe Tax (automatic_tax) computes HST/GST and US/EU tax at checkout.
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe/server';
+import { getStripe } from '@/lib/stripe/server';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -23,6 +23,7 @@ function allowedPriceIds(): Set<string> {
 }
 
 export async function POST(req: NextRequest) {
+  const stripe = getStripe();
   const supabase = await createClient();
   const {
     data: { user },

@@ -1,6 +1,6 @@
 // Refreshes the Supabase auth session on every request and gates protected
 // routes. Keeps the user's cookie fresh so Server Components see a valid session.
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PREFIXES = ['/billing', '/dashboard'];
@@ -16,7 +16,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>

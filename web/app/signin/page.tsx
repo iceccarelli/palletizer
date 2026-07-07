@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { toast } from "sonner";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function SignIn() {
+function SignInForm() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const params = useSearchParams();
@@ -98,5 +98,13 @@ export default function SignIn() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
+      <SignInForm />
+    </Suspense>
   );
 }

@@ -10,7 +10,7 @@
 //   invoice.paid / invoice.payment_failed -> forwarded to n8n for dunning
 import { NextRequest, NextResponse } from 'next/server';
 import type Stripe from 'stripe';
-import { stripe } from '@/lib/stripe/server';
+import { getStripe } from '@/lib/stripe/server';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -48,8 +48,8 @@ async function upsertSubscription(sub: Stripe.Subscription, userId?: string) {
       stripe_customer_id: typeof sub.customer === 'string' ? sub.customer : sub.customer.id,
       status: sub.status,
       price_id: item?.price?.id ?? null,
-      current_period_end: item?.current_period_end
-        ? new Date(item.current_period_end * 1000).toISOString()
+      current_period_end: sub.current_period_end
+        ? new Date(sub.current_period_end * 1000).toISOString()
         : null,
       cancel_at_period_end: sub.cancel_at_period_end,
       updated_at: new Date().toISOString(),
@@ -67,6 +67,7 @@ async function upsertSubscription(sub: Stripe.Subscription, userId?: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const stripe = getStripe();
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   const sig = req.headers.get('stripe-signature');
   if (!secret || !sig) {
