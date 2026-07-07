@@ -4,10 +4,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe/server';
 import { createClient } from '@/lib/supabase/server';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
+  if (!isSupabaseConfigured() || !process.env.STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: 'Billing is not configured yet.' }, { status: 503 });
+  }
   const stripe = getStripe();
   const supabase = await createClient();
   const {

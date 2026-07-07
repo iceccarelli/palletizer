@@ -1,12 +1,15 @@
 // Protected billing page. Middleware redirects unauthenticated users to /signin.
 // Shows current subscription state and a link into the Stripe Billing Portal.
 import { createClient } from '@/lib/supabase/server';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { redirect } from 'next/navigation';
 import PortalButton from './PortalButton';
 
 export const dynamic = 'force-dynamic';
 
 export default async function BillingPage() {
+  if (!isSupabaseConfigured()) redirect('/pricing');
+
   const supabase = await createClient();
   const {
     data: { user },
