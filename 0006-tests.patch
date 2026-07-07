@@ -1,0 +1,375 @@
+From 1ebe17f10e8acc1568be0dca7502fddfa48aec6e Mon Sep 17 00:00:00 2001
+From: t <t@t.co>
+Date: Tue, 7 Jul 2026 16:37:12 +0000
+Subject: [PATCH] test: Vitest suite + live smoke script
+
+Add 24 unit tests (money/IGV math, cart store incl. anti-tampering guard,
+catalog integrity, checkout route guards 503/400) and a curl-based live smoke
+script. Wire test/test:watch/test:smoke npm scripts and vitest+jsdom dev deps.
+---
+ package.json                |  9 +++--
+ scripts/smoke.sh            | 61 +++++++++++++++++++++++++++++++++
+ test/cart-store.test.ts     | 67 +++++++++++++++++++++++++++++++++++++
+ test/catalog.test.ts        | 50 +++++++++++++++++++++++++++
+ test/checkout-route.test.ts | 56 +++++++++++++++++++++++++++++++
+ test/format.test.ts         | 40 ++++++++++++++++++++++
+ vitest.config.ts            | 13 +++++++
+ 7 files changed, 294 insertions(+), 2 deletions(-)
+ create mode 100755 scripts/smoke.sh
+ create mode 100644 test/cart-store.test.ts
+ create mode 100644 test/catalog.test.ts
+ create mode 100644 test/checkout-route.test.ts
+ create mode 100644 test/format.test.ts
+ create mode 100644 vitest.config.ts
+
+diff --git a/package.json b/package.json
+index ca9eda6..7d2caf9 100644
+--- a/package.json
++++ b/package.json
+@@ -6,7 +6,10 @@
+     "dev": "next dev",
+     "build": "next build",
+     "start": "next start",
+-    "lint": "next lint"
++    "lint": "next lint",
++    "test": "vitest run",
++    "test:watch": "vitest",
++    "test:smoke": "bash scripts/smoke.sh"
+   },
+   "dependencies": {
+     "@ai-sdk/anthropic": "^1.2.12",
+@@ -38,8 +41,10 @@
+     "autoprefixer": "^10.4.20",
+     "eslint": "^9",
+     "eslint-config-next": "15.3.3",
++    "jsdom": "^25.0.1",
+     "postcss": "^8",
+     "tailwindcss": "^3.4.17",
+-    "typescript": "^5"
++    "typescript": "^5",
++    "vitest": "^2.1.8"
+   }
+ }
+diff --git a/scripts/smoke.sh b/scripts/smoke.sh
+new file mode 100755
+index 0000000..6b4a576
+--- /dev/null
++++ b/scripts/smoke.sh
+@@ -0,0 +1,61 @@
++#!/usr/bin/env bash
++# ============================================================
++# Smoke test en vivo — verifica que las rutas comerciales responden.
++# Uso:
++#   npm run dev            # en una terminal
++#   npm run test:smoke     # en otra (o: BASE_URL=https://tu-preview.vercel.app npm run test:smoke)
++# ============================================================
++set -uo pipefail
++
++BASE_URL="${BASE_URL:-http://localhost:3000}"
++pass=0; fail=0
++
++check() { # <descripción> <método> <ruta> <status_esperado> [body]
++  local desc="$1" method="$2" path="$3" want="$4" body="${5:-}"
++  local got
++  if [ "$method" = "POST" ]; then
++    got=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
++      -H 'Content-Type: application/json' -d "$body" "$BASE_URL$path")
++  else
++    got=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL$path")
++  fi
++  if [ "$got" = "$want" ]; then
++    printf '  \033[32m✓\033[0m %-46s [%s]\n' "$desc" "$got"; pass=$((pass+1))
++  else
++    printf '  \033[31m✗\033[0m %-46s [esperado %s, obtuvo %s]\n' "$desc" "$want" "$got"; fail=$((fail+1))
++  fi
++}
++
++echo "Smoke test → $BASE_URL"
++echo "— Páginas públicas —"
++check "home"                 GET  "/"                 200
++check "catálogo"             GET  "/productos"        200
++check "carrito"              GET  "/carrito"          200
++check "checkout"             GET  "/checkout"         200
++check "checkout/éxito"       GET  "/checkout/exito"   200
++
++echo "— API de pago (comportamiento seguro sin claves reales) —"
++# Sin STRIPE_SECRET_KEY -> 503; con clave pero slug inválido -> 400.
++# Aceptamos cualquiera de los dos como "implementado y protegido".
++code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
++  -H 'Content-Type: application/json' \
++  -d '{"items":[{"slug":"no-existe","quantity":1}],"shipping":{"email":"a@b.co"}}' \
++  "$BASE_URL/api/checkout/stripe")
++if [ "$code" = "503" ] || [ "$code" = "400" ]; then
++  printf '  \033[32m✓\033[0m %-46s [%s]\n' "checkout rechaza item inválido / sin claves" "$code"; pass=$((pass+1))
++else
++  printf '  \033[31m✗\033[0m %-46s [%s]\n' "checkout DEBERÍA proteger (503/400)" "$code"; fail=$((fail+1))
++fi
++
++# Webhook sin firma -> 400 (con secreto) o 503 (sin secreto); nunca 200.
++wcode=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
++  -H 'Content-Type: application/json' -d '{}' "$BASE_URL/api/webhooks/stripe")
++if [ "$wcode" = "400" ] || [ "$wcode" = "503" ]; then
++  printf '  \033[32m✓\033[0m %-46s [%s]\n' "webhook rechaza sin firma válida" "$wcode"; pass=$((pass+1))
++else
++  printf '  \033[31m✗\033[0m %-46s [%s]\n' "webhook DEBERÍA rechazar (400/503)" "$wcode"; fail=$((fail+1))
++fi
++
++echo
++echo "Resultado: $pass OK, $fail fallos"
++[ "$fail" -eq 0 ]
+diff --git a/test/cart-store.test.ts b/test/cart-store.test.ts
+new file mode 100644
+index 0000000..da35819
+--- /dev/null
++++ b/test/cart-store.test.ts
+@@ -0,0 +1,67 @@
++// @vitest-environment jsdom
++import { describe, it, expect, beforeEach } from 'vitest';
++import { useCart, cartCount, cartSubtotal, type CartItem } from '@/lib/cart-store';
++import type { Product } from '@/lib/types';
++
++function makeProduct(over: Partial<Product> = {}): Product {
++  return {
++    id: 'x', slug: 'demo', name: 'Demo', category: 'Cat', sector: [],
++    shortDescription: '', description: '', specifications: [], applications: [],
++    benefits: [], image: '/x.jpg', gallery: [], featured: false, popular: false,
++    price: 10, priceUnit: 'unidad', purchasable: true, ...over,
++  };
++}
++
++describe('cart-store', () => {
++  beforeEach(() => {
++    useCart.setState({ items: [], isOpen: false });
++  });
++
++  it('añade un producto comprable', () => {
++    useCart.getState().add(makeProduct({ slug: 'a' }));
++    const { items } = useCart.getState();
++    expect(items).toHaveLength(1);
++    expect(items[0].quantity).toBe(1);
++  });
++
++  it('acumula cantidad al añadir el mismo producto', () => {
++    const p = makeProduct({ slug: 'a' });
++    useCart.getState().add(p);
++    useCart.getState().add(p, 2);
++    expect(useCart.getState().items[0].quantity).toBe(3);
++  });
++
++  it('IGNORA productos no comprables (sin precio o purchasable=false)', () => {
++    useCart.getState().add(makeProduct({ slug: 'nope', purchasable: false }));
++    useCart.getState().add(makeProduct({ slug: 'nope2', price: undefined }));
++    expect(useCart.getState().items).toHaveLength(0);
++  });
++
++  it('setQuantity a 0 elimina la línea', () => {
++    useCart.getState().add(makeProduct({ slug: 'a' }));
++    useCart.getState().setQuantity('a', 0);
++    expect(useCart.getState().items).toHaveLength(0);
++  });
++
++  it('remove elimina por slug', () => {
++    useCart.getState().add(makeProduct({ slug: 'a' }));
++    useCart.getState().add(makeProduct({ slug: 'b' }));
++    useCart.getState().remove('a');
++    expect(useCart.getState().items.map((i) => i.slug)).toEqual(['b']);
++  });
++
++  it('clear vacía el carrito', () => {
++    useCart.getState().add(makeProduct({ slug: 'a' }));
++    useCart.getState().clear();
++    expect(useCart.getState().items).toHaveLength(0);
++  });
++
++  it('selectores: cartCount y cartSubtotal', () => {
++    const items: CartItem[] = [
++      { slug: 'a', name: 'A', price: 10, image: '', quantity: 2 },
++      { slug: 'b', name: 'B', price: 5.5, image: '', quantity: 4 },
++    ];
++    expect(cartCount(items)).toBe(6);
++    expect(cartSubtotal(items)).toBe(42); // 20 + 22
++  });
++});
+diff --git a/test/catalog.test.ts b/test/catalog.test.ts
+new file mode 100644
+index 0000000..13641f5
+--- /dev/null
++++ b/test/catalog.test.ts
+@@ -0,0 +1,50 @@
++import { describe, it, expect } from 'vitest';
++import { products } from '@/lib/products';
++import { PERU_DEPARTMENTS } from '@/lib/peru';
++
++describe('catálogo: integridad de datos', () => {
++  it('todos los slugs son únicos', () => {
++    const slugs = products.map((p) => p.slug);
++    expect(new Set(slugs).size).toBe(slugs.length);
++  });
++
++  it('todos los ids son únicos', () => {
++    const ids = products.map((p) => p.id);
++    expect(new Set(ids).size).toBe(ids.length);
++  });
++
++  it('un producto comprable SIEMPRE tiene precio numérico > 0 y unidad', () => {
++    for (const p of products.filter((x) => x.purchasable)) {
++      expect(typeof p.price).toBe('number');
++      expect(p.price!).toBeGreaterThan(0);
++      expect(p.priceUnit && p.priceUnit.length).toBeTruthy();
++    }
++  });
++
++  it('los 3 SKUs estandarizados están marcados como comprables', () => {
++    const purchasable = new Set(
++      products.filter((p) => p.purchasable).map((p) => p.slug)
++    );
++    expect(purchasable.has('big-bags-bolsones-polipropileno')).toBe(true);
++    expect(purchasable.has('mallas-antiafidas')).toBe(true);
++    expect(purchasable.has('mulch-madera-picada')).toBe(true);
++  });
++
++  it('los productos a medida siguen siendo cotizar (no comprables)', () => {
++    const custom = products.find((p) => p.slug === 'geomembranas-pvc');
++    expect(custom?.purchasable).toBeFalsy();
++  });
++});
++
++describe('Perú: departamentos', () => {
++  it('hay 25 departamentos y son únicos', () => {
++    expect(PERU_DEPARTMENTS).toHaveLength(25);
++    expect(new Set(PERU_DEPARTMENTS).size).toBe(25);
++  });
++
++  it('incluye Lima, Cusco y Arequipa', () => {
++    expect(PERU_DEPARTMENTS).toContain('Lima');
++    expect(PERU_DEPARTMENTS).toContain('Cusco');
++    expect(PERU_DEPARTMENTS).toContain('Arequipa');
++  });
++});
+diff --git a/test/checkout-route.test.ts b/test/checkout-route.test.ts
+new file mode 100644
+index 0000000..74ecc52
+--- /dev/null
++++ b/test/checkout-route.test.ts
+@@ -0,0 +1,56 @@
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++
++/**
++ * Verifica el comportamiento del route handler de pago SIN tocar la red:
++ *  - degradación limpia cuando no hay clave de Stripe (503)
++ *  - rechazo de productos que no existen o no son comprables (400)
++ *  - validación de payload vacío (400)
++ * Todos estos caminos ocurren ANTES de llamar a la API de Stripe.
++ */
++
++function post(body: unknown): Request {
++  return new Request('http://localhost/api/checkout/stripe', {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: JSON.stringify(body),
++  });
++}
++
++beforeEach(() => {
++  vi.resetModules();
++  vi.unstubAllEnvs();
++});
++
++describe('POST /api/checkout/stripe — guardas', () => {
++  it('devuelve 503 si Stripe no está configurado', async () => {
++    vi.stubEnv('STRIPE_SECRET_KEY', '');
++    const { POST } = await import('@/app/api/checkout/stripe/route');
++    const res = await POST(post({ items: [{ slug: 'x', quantity: 1 }], shipping: { email: 'a@b.co' } }));
++    expect(res.status).toBe(503);
++  });
++
++  it('rechaza (400) un slug inexistente aunque haya clave — anti-tampering', async () => {
++    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fake_key_for_tests');
++    const { POST } = await import('@/app/api/checkout/stripe/route');
++    const res = await POST(
++      post({ items: [{ slug: 'producto-que-no-existe', quantity: 1 }], shipping: { email: 'a@b.co' } })
++    );
++    expect(res.status).toBe(400);
++    const json = await res.json();
++    expect(String(json.error)).toMatch(/no disponible/i);
++  });
++
++  it('rechaza (400) un carrito vacío', async () => {
++    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fake_key_for_tests');
++    const { POST } = await import('@/app/api/checkout/stripe/route');
++    const res = await POST(post({ items: [], shipping: { email: 'a@b.co' } }));
++    expect(res.status).toBe(400);
++  });
++
++  it('rechaza (400) si falta el email de envío', async () => {
++    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fake_key_for_tests');
++    const { POST } = await import('@/app/api/checkout/stripe/route');
++    const res = await POST(post({ items: [{ slug: 'big-bags-bolsones-polipropileno', quantity: 1 }], shipping: {} }));
++    expect(res.status).toBe(400);
++  });
++});
+diff --git a/test/format.test.ts b/test/format.test.ts
+new file mode 100644
+index 0000000..77a1169
+--- /dev/null
++++ b/test/format.test.ts
+@@ -0,0 +1,40 @@
++import { describe, it, expect } from 'vitest';
++import { IGV_RATE, formatPEN, formatCents, toCents, withIgv } from '@/lib/format';
++
++describe('format: IGV y conversión de céntimos', () => {
++  it('el IGV del Perú es 18%', () => {
++    expect(IGV_RATE).toBe(0.18);
++  });
++
++  it('toCents convierte soles a céntimos enteros sin errores de coma flotante', () => {
++    expect(toCents(45)).toBe(4500);
++    expect(toCents(8.5)).toBe(850);
++    expect(toCents(25)).toBe(2500);
++    expect(toCents(0.1 + 0.2)).toBe(30); // 0.30000000000000004 -> 30
++  });
++
++  it('withIgv desglosa subtotal en IGV(18%) y total', () => {
++    expect(withIgv(10000)).toEqual({
++      subtotalCents: 10000,
++      igvCents: 1800,
++      totalCents: 11800,
++    });
++  });
++
++  it('withIgv redondea el IGV al céntimo', () => {
++    // 4500 * 0.18 = 810 exacto
++    expect(withIgv(4500).igvCents).toBe(810);
++    // 850 * 0.18 = 153 exacto
++    expect(withIgv(850).igvCents).toBe(153);
++  });
++
++  it('formatPEN produce moneda peruana', () => {
++    const s = formatPEN(45);
++    expect(s).toContain('45.00');
++    expect(s).toMatch(/S\/|PEN/); // símbolo local del Perú
++  });
++
++  it('formatCents formatea desde céntimos', () => {
++    expect(formatCents(11800)).toContain('118.00');
++  });
++});
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..46b722b
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1,13 @@
++import { defineConfig } from 'vitest/config';
++import { resolve } from 'node:path';
++
++export default defineConfig({
++  test: {
++    environment: 'node', // por-archivo se puede cambiar con // @vitest-environment jsdom
++    globals: true,
++    include: ['test/**/*.test.ts'],
++  },
++  resolve: {
++    alias: { '@': resolve(__dirname, '.') },
++  },
++});
