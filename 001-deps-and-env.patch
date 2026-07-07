@@ -1,0 +1,57 @@
+diff --git a/web/package.json b/web/package.json
+index 91f59cf..f35d2a4 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -13,6 +13,9 @@
+     "@react-three/drei": "^9.105.6",
+     "@react-three/fiber": "^8.16.8",
+     "@react-three/rapier": "^1.5.0",
++    "@stripe/stripe-js": "^4.10.0",
++    "@supabase/ssr": "^0.5.2",
++    "@supabase/supabase-js": "^2.45.4",
+     "@types/three": "^0.165.0",
+     "class-variance-authority": "^0.7.0",
+     "clsx": "^2.1.1",
+@@ -24,6 +27,7 @@
+     "react-hook-form": "^7.51.5",
+     "recharts": "^2.12.7",
+     "sonner": "^1.5.0",
++    "stripe": "^17.5.0",
+     "tailwind-merge": "^2.3.0",
+     "three": "^0.165.0",
+     "zod": "^3.23.8",
+diff --git a/web/.env.example b/web/.env.example
+new file mode 100644
+index 0000000..8d29643
+--- /dev/null
++++ b/web/.env.example
+@@ -0,0 +1,29 @@
++# ---------------------------------------------------------------------------
++# Palletizer web (Next.js) — environment
++# Copy to web/.env.local for local dev. Set the same vars in Vercel Project
++# Settings → Environment Variables for production. NEVER commit real secrets.
++# ---------------------------------------------------------------------------
++
++# Public site URL (used to build success/cancel/return URLs server-side).
++NEXT_PUBLIC_SITE_URL=https://palletizer-app.vercel.app
++
++# --- Supabase ---
++NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
++NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
++# Server-only. Bypasses RLS. Used by the Stripe webhook + /api/leads. NEVER expose.
++SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
++
++# --- Stripe ---
++STRIPE_SECRET_KEY=sk_test_...
++STRIPE_WEBHOOK_SECRET=whsec_...
++NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
++# Stripe Price IDs (create in Stripe Dashboard: recurring, annual). One per currency.
++NEXT_PUBLIC_STRIPE_PRICE_PRO_CAD=price_...
++NEXT_PUBLIC_STRIPE_PRICE_PRO_USD=price_...
++
++# --- n8n handoff (Rank 2). Optional: if unset, forwarding is skipped. ---
++N8N_WEBHOOK_URL=
++N8N_WEBHOOK_TOKEN=
++
++# --- Later ranks ---
++RESEND_API_KEY=

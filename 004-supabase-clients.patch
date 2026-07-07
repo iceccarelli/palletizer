@@ -1,0 +1,131 @@
+diff --git a/web/lib/supabase/client.ts b/web/lib/supabase/client.ts
+new file mode 100644
+index 0000000..c28c59d
+--- /dev/null
++++ b/web/lib/supabase/client.ts
+@@ -0,0 +1,10 @@
++// Browser-side Supabase client (singleton).
++// Uses only public env vars — never the service role key.
++import { createBrowserClient } from '@supabase/ssr';
++
++export function createClient() {
++  return createBrowserClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++  );
++}
+diff --git a/web/lib/supabase/server.ts b/web/lib/supabase/server.ts
+new file mode 100644
+index 0000000..1b7a708
+--- /dev/null
++++ b/web/lib/supabase/server.ts
+@@ -0,0 +1,41 @@
++// Server-side Supabase client bound to the request cookies (App Router).
++// Safe to use in Server Components, Route Handlers, and Server Actions.
++import { createServerClient } from '@supabase/ssr';
++import { cookies } from 'next/headers';
++
++export async function createClient() {
++  const cookieStore = await cookies();
++  return createServerClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++    {
++      cookies: {
++        getAll() {
++          return cookieStore.getAll();
++        },
++        setAll(cookiesToSet) {
++          try {
++            cookiesToSet.forEach(({ name, value, options }) =>
++              cookieStore.set(name, value, options),
++            );
++          } catch {
++            // Called from a Server Component — safe to ignore; middleware refreshes the session.
++          }
++        },
++      },
++    },
++  );
++}
++
++// Privileged client using the service-role key. SERVER ONLY.
++// Never import this into a Client Component. Used by the Stripe webhook to
++// write subscription state regardless of the current user session.
++import { createClient as createSupabaseClient } from '@supabase/supabase-js';
++
++export function createServiceClient() {
++  return createSupabaseClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.SUPABASE_SERVICE_ROLE_KEY!,
++    { auth: { persistSession: false, autoRefreshToken: false } },
++  );
++}
+diff --git a/web/lib/supabase/middleware.ts b/web/lib/supabase/middleware.ts
+new file mode 100644
+index 0000000..38f054a
+--- /dev/null
++++ b/web/lib/supabase/middleware.ts
+@@ -0,0 +1,45 @@
++// Refreshes the Supabase auth session on every request and gates protected
++// routes. Keeps the user's cookie fresh so Server Components see a valid session.
++import { createServerClient } from '@supabase/ssr';
++import { NextResponse, type NextRequest } from 'next/server';
++
++const PROTECTED_PREFIXES = ['/billing', '/dashboard'];
++
++export async function updateSession(request: NextRequest) {
++  let response = NextResponse.next({ request });
++
++  const supabase = createServerClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
++    {
++      cookies: {
++        getAll() {
++          return request.cookies.getAll();
++        },
++        setAll(cookiesToSet) {
++          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
++          response = NextResponse.next({ request });
++          cookiesToSet.forEach(({ name, value, options }) =>
++            response.cookies.set(name, value, options),
++          );
++        },
++      },
++    },
++  );
++
++  const {
++    data: { user },
++  } = await supabase.auth.getUser();
++
++  const path = request.nextUrl.pathname;
++  const isProtected = PROTECTED_PREFIXES.some((p) => path.startsWith(p));
++
++  if (isProtected && !user) {
++    const url = request.nextUrl.clone();
++    url.pathname = '/signin';
++    url.searchParams.set('next', path);
++    return NextResponse.redirect(url);
++  }
++
++  return response;
++}
+diff --git a/web/middleware.ts b/web/middleware.ts
+new file mode 100644
+index 0000000..4c8deee
+--- /dev/null
++++ b/web/middleware.ts
+@@ -0,0 +1,11 @@
++import { type NextRequest } from 'next/server';
++import { updateSession } from '@/lib/supabase/middleware';
++
++export async function middleware(request: NextRequest) {
++  return await updateSession(request);
++}
++
++export const config = {
++  // Run on everything except static assets and image files.
++  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
++};
