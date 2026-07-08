@@ -6,3 +6,6 @@
 .env*.local
 npm-debug.log*
 tsconfig.tsbuildinfo
+
+# UR10e meshes are fetched via scripts/fetch-ur10e-meshes.sh (not committed as binaries)
+/public/urdf/ur10e/meshes/

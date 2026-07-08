@@ -1,0 +1,109 @@
+<?xml version="1.0" ?>
+<!--
+  UR10e — flat (non-xacro) URDF for web loading with urdf-loader.
+  Joint origins are the exact mesh-aligned values from
+  Universal_Robots_ROS2_Description/config/ur10e/default_kinematics.yaml.
+  All joints rotate about local +Z (axis 0 0 1), which is why the joint angles
+  produced by lib/palletizer/urIK.ts drive these joints 1:1 (see urIK.ts header).
+  Visual meshes are the BSD-licensed UR CAD from ros-industrial/universal_robot.
+-->
+<robot name="ur10e">
+  <link name="base_link">
+    <visual>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
+      <geometry><mesh filename="meshes/visual/base.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="shoulder_link">
+    <visual>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
+      <geometry><mesh filename="meshes/visual/shoulder.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="upper_arm_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.1762"/>
+      <geometry><mesh filename="meshes/visual/upperarm.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="forearm_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.0393"/>
+      <geometry><mesh filename="meshes/visual/forearm.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="wrist_1_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.135"/>
+      <geometry><mesh filename="meshes/visual/wrist1.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="wrist_2_link">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 -0.12"/>
+      <geometry><mesh filename="meshes/visual/wrist2.dae"/></geometry>
+    </visual>
+  </link>
+
+  <link name="wrist_3_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.1168"/>
+      <geometry><mesh filename="meshes/visual/wrist3.dae"/></geometry>
+    </visual>
+  </link>
+
+  <!-- TCP / tool flange frame (gripper is attached here in the scene) -->
+  <link name="tool0"/>
+
+  <joint name="shoulder_pan_joint" type="revolute">
+    <parent link="base_link"/><child link="shoulder_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0.1807"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="330.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="2.0943951023931953"/>
+  </joint>
+
+  <joint name="shoulder_lift_joint" type="revolute">
+    <parent link="shoulder_link"/><child link="upper_arm_link"/>
+    <origin rpy="1.570796327 0 0" xyz="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="330.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="2.0943951023931953"/>
+  </joint>
+
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link"/><child link="forearm_link"/>
+    <origin rpy="0 0 0" xyz="-0.6127 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="150.0" lower="-3.141592653589793" upper="3.141592653589793" velocity="3.141592653589793"/>
+  </joint>
+
+  <joint name="wrist_1_joint" type="revolute">
+    <parent link="forearm_link"/><child link="wrist_1_link"/>
+    <origin rpy="0 0 0" xyz="-0.57155 0 0.17415"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
+  </joint>
+
+  <joint name="wrist_2_joint" type="revolute">
+    <parent link="wrist_1_link"/><child link="wrist_2_link"/>
+    <origin rpy="1.570796327 0 0" xyz="0 -0.11985 -2.458164590756244e-11"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
+  </joint>
+
+  <joint name="wrist_3_joint" type="revolute">
+    <parent link="wrist_2_link"/><child link="wrist_3_link"/>
+    <origin rpy="1.570796326589793 3.141592653589793 3.141592653589793" xyz="0 0.11655 -2.390480459346185e-11"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
+  </joint>
+
+  <joint name="wrist_3_to_tool0" type="fixed">
+    <parent link="wrist_3_link"/><child link="tool0"/>
+    <origin rpy="0 0 0" xyz="0 0 0.16"/>
+  </joint>
+</robot>
