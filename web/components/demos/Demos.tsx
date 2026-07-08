@@ -22,6 +22,7 @@ import {
   ExportRow,
   MetricsRow,
   PilotCTA,
+  RobotCell,
   Scene,
   SettleScene,
   SuggestionsPanel,
@@ -29,6 +30,7 @@ import {
   useLivePlan,
 } from './shared';
 import type { SettleResult } from './PhysicsSettleScene';
+import type { PhysicsConfidence } from './UrdfRobotCell';
 import type { AndonStatus } from './IndustrialCell';
 
 /** Universal status lamp: validation state -> andon color, same on every demo. */
@@ -606,6 +608,8 @@ export function DemoRobot() {
   const [playing, setPlaying] = useState(false);
   const mission = useMission('robot');
   const [speed, setSpeed] = useState(1);
+  const [twin, setTwin] = useState(false); // false = kinematic scene, true = URDF+physics twin
+  const [confidence, setConfidence] = useState<PhysicsConfidence | null>(null);
   const raf = useRef<number>();
 
   const skus = useMemo(() => [...BEVERAGE_SKUS, ...ecommChaosSkus(7, 3)], []);
@@ -666,19 +670,27 @@ export function DemoRobot() {
       <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
-          <Scene
-            boxes={live.plan.boxes}
-            andonStatus={playing ? 'busy' : andonFor(live.validation)}
-            perBox={live.validation?.per_box}
-            selectedIndex={live.selected}
-            onSelect={live.setSelected}
-            onDragMove={playing ? undefined : live.onDragMove}
-            onDragEnd={playing ? undefined : live.onDragEnd}
-            interactive={!playing}
-            cog={live.validation?.center_of_gravity}
-            visibleCount={anim.placedCount}
-            robot={anim}
-          />
+          {twin ? (
+            <RobotCell
+              boxes={live.plan.boxes}
+              robot={anim}
+              onConfidence={setConfidence}
+            />
+          ) : (
+            <Scene
+              boxes={live.plan.boxes}
+              andonStatus={playing ? 'busy' : andonFor(live.validation)}
+              perBox={live.validation?.per_box}
+              selectedIndex={live.selected}
+              onSelect={live.setSelected}
+              onDragMove={playing ? undefined : live.onDragMove}
+              onDragEnd={playing ? undefined : live.onDragEnd}
+              interactive={!playing}
+              cog={live.validation?.center_of_gravity}
+              visibleCount={anim.placedCount}
+              robot={anim}
+            />
+          )}
         </div>
         <div className="lg:col-span-4 space-y-4">
           <div className="glass p-5 rounded-2xl border border-white/10">
@@ -708,6 +720,39 @@ export function DemoRobot() {
             <div className="mt-3 text-xs font-mono text-white/60">
               {anim.placedCount}/{live.plan.boxes.length} placed • {remaining} remaining
               {anim.activeIndex >= 0 && ` • placing ${live.plan.boxes[anim.activeIndex]?.sku_id}`}
+            </div>
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <label className="flex items-center justify-between text-xs text-white/70 cursor-pointer">
+                <span>
+                  Physics digital twin
+                  <span className="block text-[10px] text-white/40">Real UR10e URDF • Rapier box dynamics</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={twin}
+                  onChange={(e) => setTwin(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-500"
+                />
+              </label>
+              {twin && confidence && (
+                <div className="mt-2 text-[11px] font-mono flex items-center gap-2">
+                  <span
+                    className={
+                      confidence.score >= 80
+                        ? 'text-emerald-400'
+                        : confidence.score >= 55
+                        ? 'text-amber-400'
+                        : 'text-red-400'
+                    }
+                  >
+                    Physics Confidence {confidence.score}/100
+                  </span>
+                  <span className="text-white/40">
+                    max drift {confidence.max_displacement_mm}mm
+                    {confidence.toppled_count > 0 && ` • ${confidence.toppled_count} toppled`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="glass p-5 rounded-2xl border border-white/10">

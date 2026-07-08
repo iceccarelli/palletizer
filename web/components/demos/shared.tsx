@@ -34,6 +34,15 @@ export const SettleScene = dynamic(() => import('./PhysicsSettleScene'), {
     </div>
   ),
 });
+// Premium physics digital twin: real UR10e URDF + Rapier box dynamics + HDRI/SSAO.
+export const RobotCell = dynamic(() => import('./UrdfRobotCell'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[460px] flex items-center justify-center text-white/50 text-sm">
+      Loading UR10e digital twin (URDF + physics)…
+    </div>
+  ),
+});
 
 // ---------------------------------------------------------------------------
 // Live plan state: optimize -> drag -> settle -> re-validate, all one hook.
