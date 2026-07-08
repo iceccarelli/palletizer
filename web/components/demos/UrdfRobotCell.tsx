@@ -343,19 +343,23 @@ function PhysicsStack({
 // ---------------------------------------------------------------------------
 export default function UrdfRobotCell({
   boxes,
-  robot: robotAnim,
+  robot: robotAnimProp,
   pallet = DEFAULT_PALLET,
   originXm = 0,
   heightClass = 'h-[460px]',
   onConfidence,
 }: {
   boxes: Placement[];
-  robot: RobotAnim;
+  robot?: RobotAnim;
   pallet?: PalletSpec;
   originXm?: number;
   heightClass?: string;
   onConfidence?: (c: PhysicsConfidence) => void;
 }) {
+  // When no animation is supplied (static demos), show the arm idle and all
+  // boxes already placed — they still drop as physics bodies and get scored.
+  const robotAnim: RobotAnim =
+    robotAnimProp ?? { activeIndex: -1, progress: 1, placedCount: boxes.length };
   const { robot, error } = useUrdf('/urdf/ur10e/ur10e.urdf');
   const [conf, setConf] = useState<PhysicsConfidence | null>(null);
 
