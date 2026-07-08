@@ -43,6 +43,67 @@ export const RobotCell = dynamic(() => import('./UrdfRobotCell'), {
     </div>
   ),
 });
+export type { PhysicsConfidence } from './UrdfRobotCell';
+import type { PhysicsConfidence as TwinConfidence } from './UrdfRobotCell';
+
+// ---------------------------------------------------------------------------
+// Physics digital-twin toggle — ONE shared implementation used by every demo,
+// so the UR10e URDF + Rapier box physics + Confidence score behave identically
+// everywhere. Each demo keeps its kinematic scene as the default; ticking the
+// box swaps in the real twin. Non-destructive and consistent by construction.
+// ---------------------------------------------------------------------------
+
+export function useTwin() {
+  const [twin, setTwin] = useState(false);
+  const [confidence, setConfidence] = useState<TwinConfidence | null>(null);
+  return { twin, setTwin, confidence, setConfidence };
+}
+
+export function TwinToggle({
+  twin,
+  onToggle,
+  confidence,
+}: {
+  twin: boolean;
+  onToggle: (v: boolean) => void;
+  confidence?: TwinConfidence | null;
+}) {
+  return (
+    <div className="glass p-4 rounded-2xl border border-white/10">
+      <label className="flex items-center justify-between text-xs text-white/80 cursor-pointer">
+        <span>
+          Physics digital twin
+          <span className="block text-[10px] text-white/40">Real UR10e URDF • Rapier box dynamics</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={twin}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="w-4 h-4 accent-emerald-500"
+        />
+      </label>
+      {twin && confidence && (
+        <div className="mt-2 text-[11px] font-mono flex flex-wrap items-center gap-2">
+          <span
+            className={
+              confidence.score >= 80
+                ? 'text-emerald-400'
+                : confidence.score >= 55
+                ? 'text-amber-400'
+                : 'text-red-400'
+            }
+          >
+            Physics Confidence {confidence.score}/100
+          </span>
+          <span className="text-white/40">
+            max drift {confidence.max_displacement_mm}mm
+            {confidence.toppled_count > 0 && ` • ${confidence.toppled_count} toppled`}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Live plan state: optimize -> drag -> settle -> re-validate, all one hook.

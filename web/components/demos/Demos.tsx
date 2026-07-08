@@ -26,11 +26,12 @@ import {
   Scene,
   SettleScene,
   SuggestionsPanel,
+  TwinToggle,
   ValidationBanner,
   useLivePlan,
+  useTwin,
 } from './shared';
 import type { SettleResult } from './PhysicsSettleScene';
-import type { PhysicsConfidence } from './UrdfRobotCell';
 import type { AndonStatus } from './IndustrialCell';
 
 /** Universal status lamp: validation state -> andon color, same on every demo. */
@@ -48,6 +49,7 @@ import type { RobotAnim } from './InteractivePalletScene';
 
 export function DemoProduction() {
   const live = useLivePlan();
+  const twin = useTwin();
   const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(false);
   const mission = useMission('main');
@@ -145,19 +147,24 @@ export function DemoProduction() {
           <div className="grid lg:grid-cols-12 gap-4">
             <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden relative">
               <HintChip show={!live.edited}>👆 Grab any box — colors and scores react live</HintChip>
-              <Scene
-                boxes={live.plan.boxes}
-                andonStatus={andonFor(live.validation)}
-                perBox={live.validation?.per_box}
-                selectedIndex={live.selected}
-                onSelect={live.setSelected}
-                onDragMove={live.onDragMove}
-                onDragEnd={live.onDragEnd}
-                cog={live.validation?.center_of_gravity}
-                labelAll
-              />
+              {twin.twin ? (
+                <RobotCell boxes={live.plan.boxes} onConfidence={twin.setConfidence} />
+              ) : (
+                <Scene
+                  boxes={live.plan.boxes}
+                  andonStatus={andonFor(live.validation)}
+                  perBox={live.validation?.per_box}
+                  selectedIndex={live.selected}
+                  onSelect={live.setSelected}
+                  onDragMove={live.onDragMove}
+                  onDragEnd={live.onDragEnd}
+                  cog={live.validation?.center_of_gravity}
+                  labelAll
+                />
+              )}
             </div>
             <div className="lg:col-span-4 space-y-4">
+              <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
               <ValidationBanner validation={live.validation} />
               <SuggestionsPanel
                 validation={live.validation}
@@ -185,6 +192,7 @@ export function DemoProduction() {
 
 export function DemoEcomm() {
   const live = useLivePlan();
+  const twin = useTwin();
   const [speedMode, setSpeedMode] = useState(false);
   const [visible, setVisible] = useState(0);
   const [building, setBuilding] = useState(false);
@@ -239,19 +247,24 @@ export function DemoEcomm() {
       <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
-          <Scene
-            boxes={live.plan.boxes}
-            andonStatus={andonFor(live.validation)}
-            perBox={live.validation?.per_box}
-            selectedIndex={live.selected}
-            onSelect={live.setSelected}
-            onDragMove={live.onDragMove}
-            onDragEnd={live.onDragEnd}
-            cog={live.validation?.center_of_gravity}
-            visibleCount={visible}
-          />
+          {twin.twin ? (
+            <RobotCell boxes={live.plan.boxes} onConfidence={twin.setConfidence} />
+          ) : (
+            <Scene
+              boxes={live.plan.boxes}
+              andonStatus={andonFor(live.validation)}
+              perBox={live.validation?.per_box}
+              selectedIndex={live.selected}
+              onSelect={live.setSelected}
+              onDragMove={live.onDragMove}
+              onDragEnd={live.onDragEnd}
+              cog={live.validation?.center_of_gravity}
+              visibleCount={visible}
+            />
+          )}
         </div>
         <div className="lg:col-span-4 space-y-4">
+          <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
           <div className="glass p-5 rounded-2xl border border-white/10">
             <div className="text-sm font-semibold mb-3">Throughput vs density — measured, not marketed</div>
             <label className="flex items-center justify-between text-sm cursor-pointer">
@@ -305,6 +318,7 @@ export function DemoEcomm() {
 
 export function DemoStress() {
   const live = useLivePlan();
+  const twin = useTwin();
   const [settling, setSettling] = useState(false);
   const [settleResult, setSettleResult] = useState<SettleResult | null>(null);
   const [before, setBefore] = useState<WebPlan | null>(null);
@@ -378,6 +392,8 @@ export function DemoStress() {
                 setSettling(false);
               }}
             />
+          ) : twin.twin ? (
+            <RobotCell boxes={live.plan.boxes} onConfidence={twin.setConfidence} />
           ) : (
             <Scene
               boxes={live.plan.boxes}
@@ -392,6 +408,7 @@ export function DemoStress() {
           )}
         </div>
         <div className="lg:col-span-4 space-y-4">
+          <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
           <div className="glass p-5 rounded-2xl border border-white/10">
             <div className="text-sm font-semibold mb-1 flex items-center gap-2">
               <FlaskConical className="w-4 h-4 text-amber-400" /> Break it, then recover
@@ -473,6 +490,7 @@ function buildPallet(skus: BoxSpec[], id: string): PalletState {
 
 export function DemoMultiPallet() {
   const all = useMemo(() => multiPalletSkus(), []);
+  const twin = useTwin();
   const [pallets, setPallets] = useState<PalletState[]>(() => {
     // Global split: pack pallet A, overflow goes to pallet B — this IS the order-splitting logic.
     const a = planFromBoxes(all, {}, undefined, 'plan_A');
@@ -532,21 +550,32 @@ export function DemoMultiPallet() {
   return (
     <div className="space-y-4">
       <MissionBanner demo="multi" />
+      <div className="max-w-sm">
+        <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
+      </div>
       <div className="grid md:grid-cols-2 gap-4">
         {pallets.map((p, pi) => (
           <div key={pi} className="space-y-3">
             <div className="glass rounded-3xl border border-white/10 overflow-hidden">
-              <Scene
-                boxes={p.plan.boxes}
-                andonStatus={andonFor(p.validation)}
-                perBox={p.validation.per_box}
-                selectedIndex={sel?.pallet === pi ? sel.index : null}
-                onSelect={(i) => setSel(i === null ? null : { pallet: pi, index: i })}
-                interactive
-                cog={p.validation.center_of_gravity}
-                heightClass="h-[340px]"
-                paletteTag={`PALLET ${pi === 0 ? 'A' : 'B'}`}
-              />
+              {twin.twin ? (
+                <RobotCell
+                  boxes={p.plan.boxes}
+                  heightClass="h-[340px]"
+                  onConfidence={pi === 0 ? twin.setConfidence : undefined}
+                />
+              ) : (
+                <Scene
+                  boxes={p.plan.boxes}
+                  andonStatus={andonFor(p.validation)}
+                  perBox={p.validation.per_box}
+                  selectedIndex={sel?.pallet === pi ? sel.index : null}
+                  onSelect={(i) => setSel(i === null ? null : { pallet: pi, index: i })}
+                  interactive
+                  cog={p.validation.center_of_gravity}
+                  heightClass="h-[340px]"
+                  paletteTag={`PALLET ${pi === 0 ? 'A' : 'B'}`}
+                />
+              )}
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               {[
@@ -608,8 +637,7 @@ export function DemoRobot() {
   const [playing, setPlaying] = useState(false);
   const mission = useMission('robot');
   const [speed, setSpeed] = useState(1);
-  const [twin, setTwin] = useState(false); // false = kinematic scene, true = URDF+physics twin
-  const [confidence, setConfidence] = useState<PhysicsConfidence | null>(null);
+  const twin = useTwin();
   const raf = useRef<number>();
 
   const skus = useMemo(() => [...BEVERAGE_SKUS, ...ecommChaosSkus(7, 3)], []);
@@ -670,11 +698,11 @@ export function DemoRobot() {
       <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
-          {twin ? (
+          {twin.twin ? (
             <RobotCell
               boxes={live.plan.boxes}
               robot={anim}
-              onConfidence={setConfidence}
+              onConfidence={twin.setConfidence}
             />
           ) : (
             <Scene
@@ -722,37 +750,7 @@ export function DemoRobot() {
               {anim.activeIndex >= 0 && ` • placing ${live.plan.boxes[anim.activeIndex]?.sku_id}`}
             </div>
             <div className="mt-3 pt-3 border-t border-white/10">
-              <label className="flex items-center justify-between text-xs text-white/70 cursor-pointer">
-                <span>
-                  Physics digital twin
-                  <span className="block text-[10px] text-white/40">Real UR10e URDF • Rapier box dynamics</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={twin}
-                  onChange={(e) => setTwin(e.target.checked)}
-                  className="w-4 h-4 accent-emerald-500"
-                />
-              </label>
-              {twin && confidence && (
-                <div className="mt-2 text-[11px] font-mono flex items-center gap-2">
-                  <span
-                    className={
-                      confidence.score >= 80
-                        ? 'text-emerald-400'
-                        : confidence.score >= 55
-                        ? 'text-amber-400'
-                        : 'text-red-400'
-                    }
-                  >
-                    Physics Confidence {confidence.score}/100
-                  </span>
-                  <span className="text-white/40">
-                    max drift {confidence.max_displacement_mm}mm
-                    {confidence.toppled_count > 0 && ` • ${confidence.toppled_count} toppled`}
-                  </span>
-                </div>
-              )}
+              <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
             </div>
           </div>
           <div className="glass p-5 rounded-2xl border border-white/10">
@@ -785,6 +783,7 @@ interface ChatEntry {
 
 export function DemoTwin() {
   const live = useLivePlan();
+  const twin = useTwin();
   const mission = useMission('twin');
   const [skus, setSkus] = useState<BoxSpec[]>(PHARMA_SKUS);
   const [mode, setMode] = useState<'client' | 'backend'>('client');
@@ -871,19 +870,24 @@ export function DemoTwin() {
       <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
       <div className="grid lg:grid-cols-12 gap-4">
         <div className="lg:col-span-7 glass rounded-3xl border border-white/10 overflow-hidden">
-          <Scene
-            boxes={live.plan.boxes}
-            andonStatus={andonFor(live.validation)}
-            perBox={live.validation?.per_box}
-            selectedIndex={live.selected}
-            onSelect={live.setSelected}
-            onDragMove={live.onDragMove}
-            onDragEnd={live.onDragEnd}
-            cog={live.validation?.center_of_gravity}
-            labelAll
-          />
+          {twin.twin ? (
+            <RobotCell boxes={live.plan.boxes} onConfidence={twin.setConfidence} />
+          ) : (
+            <Scene
+              boxes={live.plan.boxes}
+              andonStatus={andonFor(live.validation)}
+              perBox={live.validation?.per_box}
+              selectedIndex={live.selected}
+              onSelect={live.setSelected}
+              onDragMove={live.onDragMove}
+              onDragEnd={live.onDragEnd}
+              cog={live.validation?.center_of_gravity}
+              labelAll
+            />
+          )}
         </div>
         <div className="lg:col-span-5 space-y-4">
+          <TwinToggle twin={twin.twin} onToggle={twin.setTwin} confidence={twin.confidence} />
           {/* live SKU property editing */}
           <div className="glass p-5 rounded-2xl border border-white/10">
             <div className="text-sm font-semibold mb-2">Digital twin — live SKU properties</div>
