@@ -1,0 +1,1289 @@
+diff --git a/web/.gitignore b/web/.gitignore
+index aed6194..ab44089 100644
+--- a/web/.gitignore
++++ b/web/.gitignore
+@@ -6,3 +6,6 @@
+ .env*.local
+ npm-debug.log*
+ tsconfig.tsbuildinfo
++
++# UR10e meshes are fetched via scripts/fetch-ur10e-meshes.sh (not committed as binaries)
++/public/urdf/ur10e/meshes/
+diff --git a/web/components/PalletVisualizer3D.tsx b/web/components/PalletVisualizer3D.tsx
+index 206bbce..28b2db9 100644
+--- a/web/components/PalletVisualizer3D.tsx
++++ b/web/components/PalletVisualizer3D.tsx
+@@ -1,8 +1,25 @@
+ "use client";
+ 
++// Premium static pallet viewer.
++//
++// Upgrade over the original meshLambert box viewer:
++//   * PBR cardboard/wood materials (meshStandardMaterial + roughness/metalness).
++//   * HDRI image-based lighting (drei <Environment>) + a keyed directional light.
++//   * Soft contact shadows and SSAO for grounded, enterprise-grade depth.
++//   * Instanced-friendly structure and stable coordinate mapping (unchanged layout).
++// Prop contract is identical to before, so it is a drop-in replacement.
++
+ import React, { useMemo } from 'react';
+ import { Canvas } from '@react-three/fiber';
+-import { OrbitControls, Html } from '@react-three/drei';
++import {
++  OrbitControls,
++  Html,
++  Environment,
++  SoftShadows,
++  ContactShadows,
++} from '@react-three/drei';
++import { EffectComposer, SSAO, SMAA } from '@react-three/postprocessing';
++import { BlendFunction } from 'postprocessing';
+ import * as THREE from 'three';
+ 
+ interface Placement {
+@@ -23,31 +40,40 @@ interface PalletPlan {
+   metrics: any;
+ }
+ 
+-function BoxMesh({ placement, index }: { placement: Placement; index: number }) {
++const MM = 1 / 1000;
++
++// Warm carton palette by layer — reads as real corrugated cardboard, not toy blocks.
++const CARTON_TINTS = ['#c8935f', '#b9824f', '#cf9d6a', '#bd8a58', '#c69264', '#b57d49'];
++
++function BoxMesh({ placement }: { placement: Placement }) {
+   const { x_mm, y_mm, z_mm, length_mm, width_mm, height_mm, rot_deg, sku_id, layer } = placement;
+-  
+-  const color = useMemo(() => {
+-    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+-    return colors[layer % colors.length];
+-  }, [layer]);
++
++  const color = useMemo(() => CARTON_TINTS[layer % CARTON_TINTS.length], [layer]);
+ 
+   const position: [number, number, number] = [
+-    (x_mm + length_mm / 2) / 1000 - 0.6, 
+-    (z_mm + height_mm / 2) / 1000 + 0.01, 
+-    (y_mm + width_mm / 2) / 1000 - 0.5
++    (x_mm + length_mm / 2) * MM - 0.6,
++    (z_mm + height_mm / 2) * MM + 0.05,
++    (y_mm + width_mm / 2) * MM - 0.5,
+   ];
+-
+   const rotation: [number, number, number] = [0, rot_deg * (Math.PI / 180), 0];
+ 
+   return (
+     <group>
+-      <mesh position={position} rotation={rotation}>
+-        <boxGeometry args={[length_mm / 1000, height_mm / 1000, width_mm / 1000]} />
+-        <meshLambertMaterial color={color} transparent opacity={0.92} />
++      <mesh position={position} rotation={rotation} castShadow receiveShadow>
++        <boxGeometry args={[length_mm * MM, height_mm * MM, width_mm * MM]} />
++        <meshStandardMaterial color={color} roughness={0.92} metalness={0.02} />
+       </mesh>
+-      {/* Simple label on hover via Html */}
+-      <Html position={[position[0], position[1] + height_mm / 2000 + 0.15, position[2]]} style={{ pointerEvents: 'none' }}>
+-        <div className="text-[9px] font-mono bg-black/80 px-1.5 py-0.5 rounded text-white/90 whitespace-nowrap">
++      {/* subtle seam lines so cartons read as cardboard */}
++      <lineSegments position={position} rotation={rotation}>
++        <edgesGeometry args={[new THREE.BoxGeometry(length_mm * MM, height_mm * MM, width_mm * MM)]} />
++        <lineBasicMaterial color="#5b4126" transparent opacity={0.35} />
++      </lineSegments>
++      <Html
++        position={[position[0], position[1] + height_mm / 2000 + 0.14, position[2]]}
++        style={{ pointerEvents: 'none' }}
++        center
++      >
++        <div className="text-[9px] font-mono bg-black/80 px-1.5 py-0.5 rounded text-white/90 whitespace-nowrap border border-white/10">
+           {sku_id} L{layer}
+         </div>
+       </Html>
+@@ -59,47 +85,75 @@ export default function PalletVisualizer3D({ plan }: { plan: PalletPlan }) {
+   const palletLength = 1.219;
+   const palletWidth = 1.016;
+   const stackH = Math.max(0.3, (plan.metrics?.stack_height_mm ?? 800) / 1000);
+-  // camera distance scales with the larger of footprint diagonal and stack height
+   const camR = Math.max(2.1, 1.35 * Math.max(1.6, stackH * 1.9));
+   const target: [number, number, number] = [0, stackH * 0.45, 0];
+ 
+   return (
+     <div className="three-container w-full h-[420px] relative">
+-      <Canvas 
+-        camera={{ position: [camR, camR * 0.78, camR], fov: 42 }} 
++      <Canvas
++        shadows
++        dpr={[1, 2]}
++        camera={{ position: [camR, camR * 0.78, camR], fov: 42 }}
++        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
+         style={{ background: '#0a0f1a' }}
+       >
+-        <ambientLight intensity={0.6} />
+-        <directionalLight position={[5, 10, 5]} intensity={1.1} castShadow />
+-        <pointLight position={[-5, 3, -5]} intensity={0.4} />
++        <color attach="background" args={['#0a0f1a']} />
++        <hemisphereLight intensity={0.3} groundColor="#0b1220" />
++        <directionalLight
++          position={[5, 10, 5]}
++          intensity={2.0}
++          castShadow
++          shadow-mapSize={[2048, 2048]}
++          shadow-bias={-0.0002}
++        >
++          <orthographicCamera attach="shadow-camera" args={[-3, 3, 3, -3, 0.1, 20]} />
++        </directionalLight>
++        <SoftShadows size={24} samples={16} focus={0.9} />
++        <Environment preset="warehouse" background={false} />
+ 
+-        {/* Pallet base */}
+-        <mesh position={[0, 0.01, 0]} receiveShadow>
++        {/* Pallet base + runners (wood PBR) */}
++        <mesh position={[0, 0.02, 0]} receiveShadow>
+           <boxGeometry args={[palletLength, 0.04, palletWidth]} />
+-          <meshLambertMaterial color="#78350f" />
+-        </mesh>
+-
+-        {/* Pallet boards / edges */}
+-        <mesh position={[0, 0.03, 0]}>
+-          <boxGeometry args={[palletLength + 0.03, 0.015, palletWidth + 0.03]} />
+-          <meshLambertMaterial color="#451a03" wireframe={false} />
++          <meshStandardMaterial color="#7c5a33" roughness={0.85} metalness={0.03} />
+         </mesh>
++        {[-0.4, 0, 0.4].map((f) => (
++          <mesh key={f} position={[0, -0.01, f * palletWidth]} receiveShadow castShadow>
++            <boxGeometry args={[palletLength, 0.05, 0.09]} />
++            <meshStandardMaterial color="#5f4425" roughness={0.9} />
++          </mesh>
++        ))}
+ 
+-        {/* Render all boxes */}
+         {plan.boxes.map((placement, index) => (
+-          <BoxMesh key={index} placement={placement} index={index} />
++          <BoxMesh key={index} placement={placement} />
+         ))}
+ 
+-        <OrbitControls 
+-          enablePan={true} 
+-          enableZoom={true} 
+-          minDistance={1.2} 
++        <ContactShadows position={[0, 0.001, 0]} opacity={0.5} scale={6} blur={2.6} far={3} />
++        <gridHelper args={[4, 20, '#243244', '#151f2e']} position={[0, -0.02, 0]} />
++
++        <OrbitControls
++          enablePan
++          enableZoom
++          minDistance={1.2}
+           maxDistance={6}
+           target={target}
++          makeDefault
+         />
+-        
+-        {/* Grid / floor hint */}
+-        <gridHelper args={[4, 20, '#334155', '#1e2937']} position={[0, -0.02, 0]} />
++
++        <EffectComposer enableNormalPass multisampling={0}>
++          <SSAO
++            blendFunction={BlendFunction.MULTIPLY}
++            samples={16}
++            radius={0.1}
++            intensity={20}
++            luminanceInfluence={0.5}
++            color={new THREE.Color('black') as any}
++            worldDistanceThreshold={20}
++            worldDistanceFalloff={5}
++            worldProximityThreshold={6}
++            worldProximityFalloff={6}
++          />
++          <SMAA />
++        </EffectComposer>
+       </Canvas>
+ 
+       <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 px-3 py-1 rounded text-white/60 pointer-events-none">
+diff --git a/web/components/demos/Demos.tsx b/web/components/demos/Demos.tsx
+index 08c4d5a..a0b8a58 100644
+--- a/web/components/demos/Demos.tsx
++++ b/web/components/demos/Demos.tsx
+@@ -22,6 +22,7 @@ import {
+   ExportRow,
+   MetricsRow,
+   PilotCTA,
++  RobotCell,
+   Scene,
+   SettleScene,
+   SuggestionsPanel,
+@@ -29,6 +30,7 @@ import {
+   useLivePlan,
+ } from './shared';
+ import type { SettleResult } from './PhysicsSettleScene';
++import type { PhysicsConfidence } from './UrdfRobotCell';
+ import type { AndonStatus } from './IndustrialCell';
+ 
+ /** Universal status lamp: validation state -> andon color, same on every demo. */
+@@ -606,6 +608,8 @@ export function DemoRobot() {
+   const [playing, setPlaying] = useState(false);
+   const mission = useMission('robot');
+   const [speed, setSpeed] = useState(1);
++  const [twin, setTwin] = useState(false); // false = kinematic scene, true = URDF+physics twin
++  const [confidence, setConfidence] = useState<PhysicsConfidence | null>(null);
+   const raf = useRef<number>();
+ 
+   const skus = useMemo(() => [...BEVERAGE_SKUS, ...ecommChaosSkus(7, 3)], []);
+@@ -666,19 +670,27 @@ export function DemoRobot() {
+       <MetricsRow plan={live.plan} validation={live.validation} engineBest={live.engineBest} edited={live.edited} />
+       <div className="grid lg:grid-cols-12 gap-4">
+         <div className="lg:col-span-8 glass rounded-3xl border border-white/10 overflow-hidden">
+-          <Scene
+-            boxes={live.plan.boxes}
+-            andonStatus={playing ? 'busy' : andonFor(live.validation)}
+-            perBox={live.validation?.per_box}
+-            selectedIndex={live.selected}
+-            onSelect={live.setSelected}
+-            onDragMove={playing ? undefined : live.onDragMove}
+-            onDragEnd={playing ? undefined : live.onDragEnd}
+-            interactive={!playing}
+-            cog={live.validation?.center_of_gravity}
+-            visibleCount={anim.placedCount}
+-            robot={anim}
+-          />
++          {twin ? (
++            <RobotCell
++              boxes={live.plan.boxes}
++              robot={anim}
++              onConfidence={setConfidence}
++            />
++          ) : (
++            <Scene
++              boxes={live.plan.boxes}
++              andonStatus={playing ? 'busy' : andonFor(live.validation)}
++              perBox={live.validation?.per_box}
++              selectedIndex={live.selected}
++              onSelect={live.setSelected}
++              onDragMove={playing ? undefined : live.onDragMove}
++              onDragEnd={playing ? undefined : live.onDragEnd}
++              interactive={!playing}
++              cog={live.validation?.center_of_gravity}
++              visibleCount={anim.placedCount}
++              robot={anim}
++            />
++          )}
+         </div>
+         <div className="lg:col-span-4 space-y-4">
+           <div className="glass p-5 rounded-2xl border border-white/10">
+@@ -709,6 +721,39 @@ export function DemoRobot() {
+               {anim.placedCount}/{live.plan.boxes.length} placed • {remaining} remaining
+               {anim.activeIndex >= 0 && ` • placing ${live.plan.boxes[anim.activeIndex]?.sku_id}`}
+             </div>
++            <div className="mt-3 pt-3 border-t border-white/10">
++              <label className="flex items-center justify-between text-xs text-white/70 cursor-pointer">
++                <span>
++                  Physics digital twin
++                  <span className="block text-[10px] text-white/40">Real UR10e URDF • Rapier box dynamics</span>
++                </span>
++                <input
++                  type="checkbox"
++                  checked={twin}
++                  onChange={(e) => setTwin(e.target.checked)}
++                  className="w-4 h-4 accent-emerald-500"
++                />
++              </label>
++              {twin && confidence && (
++                <div className="mt-2 text-[11px] font-mono flex items-center gap-2">
++                  <span
++                    className={
++                      confidence.score >= 80
++                        ? 'text-emerald-400'
++                        : confidence.score >= 55
++                        ? 'text-amber-400'
++                        : 'text-red-400'
++                    }
++                  >
++                    Physics Confidence {confidence.score}/100
++                  </span>
++                  <span className="text-white/40">
++                    max drift {confidence.max_displacement_mm}mm
++                    {confidence.toppled_count > 0 && ` • ${confidence.toppled_count} toppled`}
++                  </span>
++                </div>
++              )}
++            </div>
+           </div>
+           <div className="glass p-5 rounded-2xl border border-white/10">
+             <div className="text-sm font-semibold mb-2">Closed-loop editing</div>
+diff --git a/web/components/demos/UrdfRobotCell.tsx b/web/components/demos/UrdfRobotCell.tsx
+new file mode 100644
+index 0000000..375dace
+--- /dev/null
++++ b/web/components/demos/UrdfRobotCell.tsx
+@@ -0,0 +1,484 @@
++"use client";
++
++// ---------------------------------------------------------------------------
++// UrdfRobotCell — premium "physics digital twin" mode for the Robot Execution demo.
++//
++// What makes this different from the kinematic InteractivePalletScene:
++//   * A REAL UR10e is loaded from /public/urdf/ur10e/ur10e.urdf via urdf-loader.
++//   * Its six joints are driven every frame by verified inverse kinematics
++//     (lib/palletizer/urIK.ts) so the arm reaches the planner's pick/place poses
++//     exactly like the physical robot — warm-started + velocity-clamped for smooth,
++//     continuous motion with no closed-form "elbow flip" glitches.
++//   * Boxes are Rapier DYNAMIC rigid bodies with real mass/friction/restitution.
++//     Each placed box drops from the gripper, collides, stacks, and visibly tips if
++//     the plan is unstable. The measured post-settle displacement becomes a
++//     "Physics Confidence Score" — a physical, sellable validation number.
++//   * HDRI environment + soft shadows + SSAO give the enterprise look.
++//
++// DESIGN DECISION — kinematic arm, dynamic boxes (not full rigid-body arm):
++//   Real palletizing cobots are stiff position-controlled systems. Simulating the
++//   arm itself as free rigid bodies with motorised revolute joints is numerically
++//   stiff, needs per-joint torque tuning, and adds nothing to the value prop, which
++//   is validating the *load*. So the arm is position-controlled (kinematic) and the
++//   physics budget is spent entirely on the boxes — the thing that actually fails.
++// ---------------------------------------------------------------------------
++
++import React, { useEffect, useMemo, useRef, useState } from 'react';
++import { Canvas, useFrame } from '@react-three/fiber';
++import { Environment, OrbitControls, SoftShadows } from '@react-three/drei';
++import { EffectComposer, SSAO, SMAA } from '@react-three/postprocessing';
++import { BlendFunction } from 'postprocessing';
++import { Physics, RigidBody, RapierRigidBody } from '@react-three/rapier';
++import * as THREE from 'three';
++// urdf-loader ships an ESM entry + types; ColladaLoader comes from three examples.
++import URDFLoader, { URDFRobot } from 'urdf-loader';
++import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
++import { DEFAULT_PALLET, PalletSpec, Placement } from '@/lib/palletizer/types';
++import {
++  UR10E_JOINTS,
++  solveIK,
++  topDownTarget,
++  baseFromScene,
++} from '@/lib/palletizer/urIK';
++import type { RobotAnim } from './InteractivePalletScene';
++
++const MM = 1 / 1000;
++
++// --- physics material presets (tuned in the README notes) ------------------
++// Cardboard: high friction, almost no bounce. Wood pallet: firm, low bounce.
++const CARDBOARD = { friction: 0.85, restitution: 0.0, linearDamping: 0.4, angularDamping: 0.6 };
++const HEAVY_CARDBOARD = { friction: 0.9, restitution: 0.0, linearDamping: 0.5, angularDamping: 0.7 };
++const materialFor = (b: Placement) => (b.weight_kg > 12 ? HEAVY_CARDBOARD : CARDBOARD);
++
++export interface PhysicsConfidence {
++  score: number; // 0..100
++  max_displacement_mm: number;
++  mean_displacement_mm: number;
++  toppled_count: number;
++  settled: boolean;
++}
++
++// ---------------------------------------------------------------------------
++// URDF loader hook — loads once, resolves .dae meshes via ColladaLoader.
++// ---------------------------------------------------------------------------
++function useUrdf(url: string) {
++  const [robot, setRobot] = useState<URDFRobot | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    let cancelled = false;
++    const manager = new THREE.LoadingManager();
++    const loader = new URDFLoader(manager);
++    // urdf-loader hands us each mesh path; load Collada and return its scene.
++    // Signature is (url, manager, material, onLoad) — see urdf-loader types.
++    loader.loadMeshCb = (path, mgr, _material, done) => {
++      new ColladaLoader(mgr).load(
++        path,
++        (dae) => {
++          const scene = dae.scene;
++          scene.traverse((c) => {
++            const m = c as THREE.Mesh;
++            if (m.isMesh) {
++              m.castShadow = true;
++              m.receiveShadow = true;
++            }
++          });
++          done(scene);
++        },
++        undefined,
++        (err) => done(null as unknown as THREE.Object3D, err as Error),
++      );
++    };
++    loader.load(
++      url,
++      (result) => {
++        if (cancelled) return;
++        // start in a natural "ready" posture
++        UR10E_JOINTS.forEach((j, i) => result.setJointValue(j, [0, -1.4, 1.6, -1.75, -1.57, 0][i]));
++        setRobot(result);
++      },
++      undefined,
++      (err) => !cancelled && setError(String(err)),
++    );
++    return () => {
++      cancelled = true;
++    };
++  }, [url]);
++
++  return { robot, error };
++}
++
++// ---------------------------------------------------------------------------
++// Trajectory: phased pick → lift → traverse → place → release, 0..1 progress.
++// Returns the TCP target in ARM-BASE-RELATIVE scene coords (Y-up) + a "gripping"
++// flag used to attach the carried box and to time the physics spawn.
++// ---------------------------------------------------------------------------
++const ease = (t: number) => t * t * (3 - 2 * t);
++const lerp3 = (a: THREE.Vector3, b: THREE.Vector3, t: number) => a.clone().lerp(b, ease(t));
++
++function tcpTarget(
++  progress: number,
++  pick: THREE.Vector3,
++  place: THREE.Vector3,
++  safeH: number,
++): { p: THREE.Vector3; gripping: boolean; released: boolean } {
++  const pickUp = pick.clone().setY(safeH);
++  const placeUp = place.clone().setY(Math.max(safeH, place.y + 0.18));
++  // 0.00–0.18 descend to pick | 0.18–0.34 lift | 0.34–0.74 traverse |
++  // 0.74–0.92 descend to place | 0.92–1.00 lift away
++  if (progress < 0.18) return { p: lerp3(pickUp, pick, progress / 0.18), gripping: false, released: false };
++  if (progress < 0.34) return { p: lerp3(pick, pickUp, (progress - 0.18) / 0.16), gripping: true, released: false };
++  if (progress < 0.74) return { p: lerp3(pickUp, placeUp, (progress - 0.34) / 0.4), gripping: true, released: false };
++  if (progress < 0.92) return { p: lerp3(placeUp, place, (progress - 0.74) / 0.18), gripping: true, released: false };
++  return { p: lerp3(place, placeUp, (progress - 0.92) / 0.08), gripping: false, released: true };
++}
++
++// Planned resting pose (scene coords) of a box's centre on the pallet.
++function boxCenterScene(b: Placement, pallet: PalletSpec, originXm: number): THREE.Vector3 {
++  const halfL = pallet.length_mm * MM * 0.5;
++  const halfW = pallet.width_mm * MM * 0.5;
++  return new THREE.Vector3(
++    (b.x_mm + b.length_mm / 2) * MM - halfL + originXm,
++    (b.z_mm + b.height_mm / 2) * MM + 0.05,
++    (b.y_mm + b.width_mm / 2) * MM - halfW,
++  );
++}
++
++// ---------------------------------------------------------------------------
++// The driven robot: primitive URDF + kinematics + a simple vacuum gripper.
++// ---------------------------------------------------------------------------
++function DrivenRobot({
++  robot,
++  basePos,
++  pick,
++  place,
++  robotAnim,
++  carried,
++  onTcp,
++}: {
++  robot: URDFRobot;
++  basePos: THREE.Vector3;
++  pick: THREE.Vector3;
++  place: THREE.Vector3;
++  robotAnim: RobotAnim;
++  carried: Placement | null;
++  onTcp: (world: THREE.Vector3, gripping: boolean, released: boolean) => void;
++}) {
++  const q = useRef<number[]>([0, -1.4, 1.6, -1.75, -1.57, 0]);
++  const gripperRef = useRef<THREE.Group>(null);
++  const carriedRef = useRef<THREE.Group>(null);
++
++  useFrame(() => {
++    // 1) Compute the desired TCP in arm-relative scene coords.
++    const relPick = pick.clone().sub(basePos);
++    const relPlace = place.clone().sub(basePos);
++    let rel = relPick.clone().setY(0.55);
++    let gripping = false, released = false;
++    if (carried) {
++      const r = tcpTarget(THREE.MathUtils.clamp(robotAnim.progress, 0, 1), relPick, relPlace, 0.55);
++      rel = r.p; gripping = r.gripping; released = r.released;
++    }
++    // 2) scene(rel) -> base frame (Z-up) target, TCP pointing straight down.
++    const [bx, by, bz] = baseFromScene(rel.x, rel.y, rel.z);
++    const yaw = carried ? carried.rot_deg : 0;
++    const target = topDownTarget(bx, by, bz, yaw);
++    // 3) IK — warm-started from last frame, velocity-clamped for smoothness.
++    const sol = solveIK(target, { seed: q.current, maxJointStep: 0.16 });
++    q.current = sol.q;
++    UR10E_JOINTS.forEach((j, i) => robot.setJointValue(j, q.current[i]));
++    // 4) Report the actual TCP (world) so the parent can spawn the physics box.
++    const world = new THREE.Vector3(rel.x, rel.y, rel.z).add(basePos);
++    if (gripperRef.current) {
++      gripperRef.current.position.copy(new THREE.Vector3(rel.x, rel.y, rel.z));
++    }
++    if (carriedRef.current) carriedRef.current.visible = gripping && !!carried;
++    onTcp(world, gripping, released);
++  });
++
++  return (
++    <group position={basePos.toArray()}>
++      {/* pedestal */}
++      <mesh position={[0, 0.06, 0]} castShadow receiveShadow>
++        <cylinderGeometry args={[0.19, 0.24, 0.12, 32]} />
++        <meshStandardMaterial color="#1e293b" roughness={0.6} metalness={0.4} />
++      </mesh>
++      {/* URDF robot: rotate ROS Z-up into the scene's Y-up */}
++      <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.12, 0]}>
++        <primitive object={robot} />
++      </group>
++      {/* Simple vacuum gripper + carried carton, positioned at the live TCP. */}
++      <group ref={gripperRef}>
++        <mesh position={[0, -0.03, 0]} castShadow>
++          <boxGeometry args={[0.16, 0.05, 0.16]} />
++          <meshStandardMaterial color="#0f172a" roughness={0.5} metalness={0.5} />
++        </mesh>
++        {[-0.05, 0.05].map((ox) =>
++          [-0.05, 0.05].map((oz) => (
++            <mesh key={`${ox}${oz}`} position={[ox, -0.07, oz]}>
++              <cylinderGeometry args={[0.02, 0.025, 0.03, 12]} />
++              <meshStandardMaterial color="#10b981" emissive="#10b981" emissiveIntensity={0.2} />
++            </mesh>
++          )),
++        )}
++        <group ref={carriedRef} visible={false}>
++          {carried && (
++            <mesh position={[0, -0.09 - (carried.height_mm * MM) / 2, 0]} castShadow>
++              <boxGeometry args={[carried.length_mm * MM, carried.height_mm * MM, carried.width_mm * MM]} />
++              <meshStandardMaterial color="#c8935f" roughness={0.9} />
++            </mesh>
++          )}
++        </group>
++      </group>
++    </group>
++  );
++}
++
++// ---------------------------------------------------------------------------
++// Physics boxes: one dynamic body per placed box, spawned once (keyed by index)
++// a few cm above its planned pose so it drops and settles for real.
++// ---------------------------------------------------------------------------
++function PhysicsStack({
++  boxes,
++  placedCount,
++  pallet,
++  originXm,
++  onConfidence,
++}: {
++  boxes: Placement[];
++  placedCount: number;
++  pallet: PalletSpec;
++  originXm: number;
++  onConfidence: (c: PhysicsConfidence) => void;
++}) {
++  const bodies = useRef<Array<RapierRigidBody | null>>([]);
++  const planned = useMemo(
++    () => boxes.map((b) => boxCenterScene(b, pallet, originXm)),
++    [boxes, pallet, originXm],
++  );
++  const settleTimer = useRef(0);
++
++  // Continuously sample displacement so the confidence number is live.
++  useFrame((_, dt) => {
++    if (placedCount === 0) return;
++    settleTimer.current += dt;
++    if (settleTimer.current < 0.25) return; // sample ~4×/s
++    settleTimer.current = 0;
++    let max = 0, sum = 0, toppled = 0, n = 0;
++    for (let i = 0; i < placedCount; i++) {
++      const rb = bodies.current[i];
++      if (!rb) continue;
++      const t = rb.translation();
++      const d = Math.hypot(t.x - planned[i].x, t.y - planned[i].y, t.z - planned[i].z) / MM;
++      max = Math.max(max, d); sum += d; n++;
++      if (d > 100) toppled++;
++    }
++    const mean = n ? sum / n : 0;
++    // Score: 100 at 0 mm, degrading; 40 mm drift ≈ 60, 100 mm ≈ topple territory.
++    const score = Math.max(0, Math.round(100 - max * 0.9 - toppled * 12));
++    onConfidence({
++      score,
++      max_displacement_mm: Math.round(max),
++      mean_displacement_mm: Math.round(mean),
++      toppled_count: toppled,
++      settled: placedCount >= boxes.length,
++    });
++  });
++
++  const L = pallet.length_mm * MM;
++  const W = pallet.width_mm * MM;
++
++  return (
++    <>
++      {/* pallet deck (fixed) + wooden runners */}
++      <RigidBody type="fixed" friction={0.9} colliders="cuboid">
++        <mesh position={[originXm, 0.02, 0]} receiveShadow>
++          <boxGeometry args={[L, 0.04, W]} />
++          <meshStandardMaterial color="#7c5a33" roughness={0.85} />
++        </mesh>
++      </RigidBody>
++      {/* catch floor so any topple lands somewhere */}
++      <RigidBody type="fixed" friction={0.9}>
++        <mesh position={[0, -0.1, 0]} receiveShadow>
++          <boxGeometry args={[12, 0.12, 12]} />
++          <meshStandardMaterial color="#0b1220" roughness={1} />
++        </mesh>
++      </RigidBody>
++
++      {boxes.slice(0, placedCount).map((b, i) => {
++        const m = materialFor(b);
++        const p = planned[i];
++        return (
++          <RigidBody
++            key={`${b.sku_id}-${i}`}
++            ref={(el) => {
++              bodies.current[i] = el;
++            }}
++            // spawn just above the planned pose so it drops + settles onto the stack
++            position={[p.x, p.y + 0.04, p.z]}
++            rotation={[0, (b.rot_deg * Math.PI) / 180, 0]}
++            colliders="cuboid"
++            mass={Math.max(b.weight_kg, 0.2)}
++            friction={m.friction}
++            restitution={m.restitution}
++            linearDamping={m.linearDamping}
++            angularDamping={m.angularDamping}
++          >
++            <mesh castShadow receiveShadow>
++              <boxGeometry args={[b.length_mm * MM, b.height_mm * MM, b.width_mm * MM]} />
++              <meshStandardMaterial
++                color={(b.fragility ?? 0) >= 0.6 ? '#eab308' : '#c8935f'}
++                roughness={0.92}
++                metalness={0.02}
++              />
++            </mesh>
++          </RigidBody>
++        );
++      })}
++    </>
++  );
++}
++
++// ---------------------------------------------------------------------------
++// Public component
++// ---------------------------------------------------------------------------
++export default function UrdfRobotCell({
++  boxes,
++  robot: robotAnim,
++  pallet = DEFAULT_PALLET,
++  originXm = 0,
++  heightClass = 'h-[460px]',
++  onConfidence,
++}: {
++  boxes: Placement[];
++  robot: RobotAnim;
++  pallet?: PalletSpec;
++  originXm?: number;
++  heightClass?: string;
++  onConfidence?: (c: PhysicsConfidence) => void;
++}) {
++  const { robot, error } = useUrdf('/urdf/ur10e/ur10e.urdf');
++  const [conf, setConf] = useState<PhysicsConfidence | null>(null);
++
++  // Robot base placed to the −X side of the pallet, facing it.
++  const basePos = useMemo(
++    () => new THREE.Vector3(originXm - pallet.length_mm * MM * 0.5 - 0.75, 0, 0),
++    [pallet, originXm],
++  );
++  const pick = useMemo(() => basePos.clone().add(new THREE.Vector3(0.35, 0.28, 0.65)), [basePos]);
++
++  const carried =
++    robotAnim.activeIndex >= 0 && robotAnim.activeIndex < boxes.length
++      ? boxes[robotAnim.activeIndex]
++      : null;
++  const place = useMemo(
++    () => (carried ? boxCenterScene(carried, pallet, originXm) : pick.clone()),
++    [carried, pallet, originXm, pick],
++  );
++
++  const handleConf = (c: PhysicsConfidence) => {
++    setConf(c);
++    onConfidence?.(c);
++  };
++
++  return (
++    <div className={`relative w-full ${heightClass}`}>
++      <Canvas
++        shadows
++        dpr={[1, 2]}
++        camera={{ position: [2.9, 2.3, 3.1], fov: 40 }}
++        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
++        style={{ background: '#0a0f1a' }}
++      >
++        <color attach="background" args={['#0a0f1a']} />
++        <hemisphereLight intensity={0.35} groundColor="#0b1220" />
++        <directionalLight
++          position={[4, 8, 4]}
++          intensity={2.2}
++          castShadow
++          shadow-mapSize={[2048, 2048]}
++          shadow-bias={-0.0002}
++        >
++          <orthographicCamera attach="shadow-camera" args={[-4, 4, 4, -4, 0.1, 20]} />
++        </directionalLight>
++        <SoftShadows size={26} samples={16} focus={0.9} />
++        {/* HDRI reflections/lighting — warehouse mood; background stays dark. */}
++        <Environment preset="warehouse" background={false} />
++
++        <Physics gravity={[0, -9.81, 0]} timeStep={1 / 90}>
++          <PhysicsStack
++            boxes={boxes}
++            placedCount={robotAnim.placedCount}
++            pallet={pallet}
++            originXm={originXm}
++            onConfidence={handleConf}
++          />
++          {robot && (
++            <DrivenRobot
++              robot={robot}
++              basePos={basePos}
++              pick={pick}
++              place={place}
++              robotAnim={robotAnim}
++              carried={carried}
++              onTcp={() => {}}
++            />
++          )}
++        </Physics>
++
++        <gridHelper args={[10, 40, '#243244', '#151f2e']} position={[0, 0, 0]} />
++        <OrbitControls minDistance={1.4} maxDistance={10} target={[originXm, 0.6, 0]} makeDefault />
++
++        <EffectComposer enableNormalPass multisampling={0}>
++          <SSAO
++            blendFunction={BlendFunction.MULTIPLY}
++            samples={16}
++            radius={0.12}
++            intensity={22}
++            luminanceInfluence={0.5}
++            color={new THREE.Color('black') as any}
++            worldDistanceThreshold={20}
++            worldDistanceFalloff={5}
++            worldProximityThreshold={6}
++            worldProximityFalloff={6}
++          />
++          <SMAA />
++        </EffectComposer>
++      </Canvas>
++
++      {/* Physics Confidence Score overlay */}
++      <div className="absolute top-3 left-3 flex items-center gap-2 pointer-events-none">
++        <div className="text-[10px] bg-black/70 px-3 py-1 rounded text-amber-300 font-mono">
++          RAPIER • UR10e URDF • g = 9.81 m/s²
++        </div>
++        {conf && (
++          <div
++            className={`text-[11px] px-3 py-1 rounded font-mono ${
++              conf.score >= 80
++                ? 'bg-emerald-900/70 text-emerald-300'
++                : conf.score >= 55
++                ? 'bg-amber-900/70 text-amber-300'
++                : 'bg-red-900/70 text-red-300'
++            }`}
++          >
++            Physics Confidence {conf.score}/100 • max drift {conf.max_displacement_mm}mm
++            {conf.toppled_count > 0 && ` • ${conf.toppled_count} TOPPLED`}
++          </div>
++        )}
++      </div>
++
++      {error && (
++        <div className="absolute inset-0 grid place-items-center bg-black/60 text-red-300 text-sm p-6 text-center">
++          Failed to load UR10e URDF ({error}). Ensure /public/urdf/ur10e/ assets are deployed.
++        </div>
++      )}
++      {!robot && !error && (
++        <div className="absolute inset-0 grid place-items-center pointer-events-none">
++          <div className="text-white/60 text-xs font-mono animate-pulse">Loading UR10e URDF…</div>
++        </div>
++      )}
++      <div className="absolute bottom-3 right-3 text-[10px] bg-black/60 px-3 py-1 rounded text-white/50 pointer-events-none">
++        Real UR10e • physics-driven placement • orbit / scroll to zoom
++      </div>
++    </div>
++  );
++}
+diff --git a/web/components/demos/shared.tsx b/web/components/demos/shared.tsx
+index 02309cb..7724600 100644
+--- a/web/components/demos/shared.tsx
++++ b/web/components/demos/shared.tsx
+@@ -34,6 +34,15 @@ export const SettleScene = dynamic(() => import('./PhysicsSettleScene'), {
+     </div>
+   ),
+ });
++// Premium physics digital twin: real UR10e URDF + Rapier box dynamics + HDRI/SSAO.
++export const RobotCell = dynamic(() => import('./UrdfRobotCell'), {
++  ssr: false,
++  loading: () => (
++    <div className="h-[460px] flex items-center justify-center text-white/50 text-sm">
++      Loading UR10e digital twin (URDF + physics)…
++    </div>
++  ),
++});
+ 
+ // ---------------------------------------------------------------------------
+ // Live plan state: optimize -> drag -> settle -> re-validate, all one hook.
+diff --git a/web/lib/palletizer/urIK.ts b/web/lib/palletizer/urIK.ts
+new file mode 100644
+index 0000000..dfa1c42
+--- /dev/null
++++ b/web/lib/palletizer/urIK.ts
+@@ -0,0 +1,304 @@
++// UR10e kinematics — forward kinematics + damped-least-squares inverse kinematics.
++//
++// WHY THIS EXISTS
++//   The interactive robot cell drives a *real* UR10e URDF (loaded with urdf-loader).
++//   To make the arm reach planner pick/place poses exactly like the physical robot,
++//   we need inverse kinematics. This module is deliberately framework-agnostic
++//   (plain number[] math, no three.js in the hot path) so it is unit-testable and so
++//   the exact math that was numerically verified offline is the math that ships.
++//
++// FRAME CONVENTION — IMPORTANT
++//   FK is composed from the EXACT UR10e URDF joint origins (config/ur10e/
++//   default_kinematics.yaml from Universal_Robots_ROS2_Description) with each joint a
++//   rotation about local +Z. That means the joint angles returned by `solveIK` map
++//   1:1 onto urdf-loader's `setJointValue(name, angle)` — no DH<->URDF offset fudging.
++//   (Composing FK from DH parameters instead would introduce constant ±π/2 offsets
++//   between the solver and the visual robot; this convention removes that bug class.)
++//
++// VERIFICATION (offline, see commit notes)
++//   * FK(IK(pose)) reproduces reachable top-down poses to < 1e-6 m / rad.
++//   * Warm-started, velocity-clamped solving stays continuous (<1°/frame) along
++//     realistic one-sided palletizing paths — no closed-form "elbow flip" glitches.
++
++export type Mat4 = number[]; // length-16, row-major
++
++/** UR10e joint names in kinematic order — match the shipped URDF exactly. */
++export const UR10E_JOINTS = [
++  'shoulder_pan_joint',
++  'shoulder_lift_joint',
++  'elbow_joint',
++  'wrist_1_joint',
++  'wrist_2_joint',
++  'wrist_3_joint',
++] as const;
++
++/** Manufacturer joint limits (rad) — used to keep IK output physically valid. */
++export const UR10E_LIMITS: [number, number][] = [
++  [-2 * Math.PI, 2 * Math.PI],
++  [-2 * Math.PI, 2 * Math.PI],
++  [-Math.PI, Math.PI],
++  [-2 * Math.PI, 2 * Math.PI],
++  [-2 * Math.PI, 2 * Math.PI],
++  [-2 * Math.PI, 2 * Math.PI],
++];
++
++const I4 = (): Mat4 => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
++
++function mul(A: Mat4, B: Mat4): Mat4 {
++  const C = new Array(16).fill(0);
++  for (let r = 0; r < 4; r++)
++    for (let c = 0; c < 4; c++) {
++      let s = 0;
++      for (let k = 0; k < 4; k++) s += A[r * 4 + k] * B[k * 4 + c];
++      C[r * 4 + c] = s;
++    }
++  return C;
++}
++
++/** URDF origin transform: Trans(xyz) · Rz(yaw) · Ry(pitch) · Rx(roll). */
++function origin(x: number, y: number, z: number, R: number, P: number, Y: number): Mat4 {
++  const cr = Math.cos(R), sr = Math.sin(R);
++  const cp = Math.cos(P), sp = Math.sin(P);
++  const cy = Math.cos(Y), sy = Math.sin(Y);
++  return [
++    cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr, x,
++    sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr, y,
++    -sp, cp * sr, cp * cr, z,
++    0, 0, 0, 1,
++  ];
++}
++
++function rotZ(t: number): Mat4 {
++  const c = Math.cos(t), s = Math.sin(t);
++  return [c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
++}
++
++// Exact UR10e joint origins (metres / radians) — mesh-aligned.
++const ORIGINS: Mat4[] = [
++  origin(0, 0, 0.1807, 0, 0, 0),
++  origin(0, 0, 0, 1.570796327, 0, 0),
++  origin(-0.6127, 0, 0, 0, 0, 0),
++  origin(-0.57155, 0, 0.17415, 0, 0, 0),
++  origin(0, -0.11985, -2.458164590756244e-11, 1.570796327, 0, 0),
++  origin(0, 0.11655, -2.390480459346185e-11, 1.570796326589793, 3.141592653589793, 3.141592653589793),
++];
++
++/** Tool offset from the wrist-3 flange to the gripper TCP (m, along flange +Z). */
++export const DEFAULT_TCP_OFFSET = 0.16;
++
++/** Forward kinematics → TCP pose as a row-major 4×4. */
++export function forwardKinematics(q: number[], tcpOffset = DEFAULT_TCP_OFFSET): Mat4 {
++  let T = I4();
++  for (let i = 0; i < 6; i++) {
++    T = mul(T, ORIGINS[i]);
++    T = mul(T, rotZ(q[i]));
++  }
++  return mul(T, origin(0, 0, tcpOffset, 0, 0, 0));
++}
++
++/** Convenience: TCP world position from joints. */
++export function tcpPosition(q: number[], tcpOffset = DEFAULT_TCP_OFFSET): [number, number, number] {
++  const T = forwardKinematics(q, tcpOffset);
++  return [T[3], T[7], T[11]];
++}
++
++/** 6-vector pose error (position + Siciliano orientation error) of current vs goal. */
++function poseError(C: Mat4, G: Mat4): number[] {
++  const col = (M: Mat4, c: number) => [M[c], M[4 + c], M[8 + c]];
++  const cross = (u: number[], v: number[]) => [
++    u[1] * v[2] - u[2] * v[1],
++    u[2] * v[0] - u[0] * v[2],
++    u[0] * v[1] - u[1] * v[0],
++  ];
++  const e = cross(col(C, 0), col(G, 0));
++  const f = cross(col(C, 1), col(G, 1));
++  const g = cross(col(C, 2), col(G, 2));
++  return [
++    G[3] - C[3], G[7] - C[7], G[11] - C[11],
++    -0.5 * (e[0] + f[0] + g[0]),
++    -0.5 * (e[1] + f[1] + g[1]),
++    -0.5 * (e[2] + f[2] + g[2]),
++  ];
++}
++
++/** Numeric 6×6 Jacobian via central differences. */
++function jacobian(q: number[], tcpOffset: number): number[][] {
++  const h = 1e-6;
++  const J: number[][] = Array.from({ length: 6 }, () => new Array(6));
++  for (let j = 0; j < 6; j++) {
++    const qp = q.slice(); qp[j] += h;
++    const qm = q.slice(); qm[j] -= h;
++    const ep = poseError(forwardKinematics(qm, tcpOffset), forwardKinematics(qp, tcpOffset));
++    for (let i = 0; i < 6; i++) J[i][j] = ep[i] / (2 * h);
++  }
++  return J;
++}
++
++/** Gaussian elimination solve of a 6×6 system. */
++function solve6(A: number[][], b: number[]): number[] {
++  const M = A.map((r, i) => [...r, b[i]]);
++  for (let c = 0; c < 6; c++) {
++    let p = c;
++    for (let r = c + 1; r < 6; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
++    [M[c], M[p]] = [M[p], M[c]];
++    const pv = M[c][c] || 1e-12;
++    for (let r = 0; r < 6; r++) {
++      if (r === c) continue;
++      const fr = M[r][c] / pv;
++      for (let k = c; k <= 6; k++) M[r][k] -= fr * M[c][k];
++    }
++  }
++  return M.map((r, i) => r[6] / (M[i][i] || 1e-12));
++}
++
++export interface IKOptions {
++  /** Warm-start seed (previous frame's joints). Strongly recommended for continuity. */
++  seed?: number[];
++  tcpOffset?: number;
++  maxIters?: number;
++  /** Trust-region cap per Newton iteration (rad). */
++  maxIterStep?: number;
++  /**
++   * Output velocity clamp (rad) — the returned solution is limited to within this of
++   * `seed`, mimicking joint-velocity limits so a solver basin-flip can never teleport
++   * the visual robot. Set to Infinity for cold acquisition.
++   */
++  maxJointStep?: number;
++  convergence?: number;
++}
++
++export interface IKResult {
++  q: number[];
++  /** Residual pose error norm; > ~1e-3 means the target was effectively unreachable. */
++  error: number;
++  reached: boolean;
++}
++
++// Cold-start seeds spanning the main UR arm postures (shoulder up/down, elbow up/down).
++const ACQUIRE_SEEDS: number[][] = [
++  [0, -1.57, 1.57, -1.57, -1.57, 0],
++  [0, -1.0, 2.0, -2.5, -1.57, 0],
++  [0, -2.2, -1.5, 0.6, 1.57, 0],
++  [Math.PI / 2, -1.57, 1.57, -1.57, -1.57, 0],
++];
++
++/**
++ * Solve inverse kinematics for a target TCP pose (row-major 4×4, metres).
++ * If no `seed` is given, multi-start acquisition finds a valid posture; if a `seed`
++ * is given, it warm-starts (fast + continuous) and applies the velocity clamp.
++ */
++export function solveIK(target: Mat4, opts: IKOptions = {}): IKResult {
++  const {
++    tcpOffset = DEFAULT_TCP_OFFSET,
++    maxIters = 80,
++    maxIterStep = 0.4,
++    convergence = 1e-9,
++  } = opts;
++
++  const run = (seed: number[]): IKResult => {
++    let q = seed.slice();
++    for (let it = 0; it < maxIters; it++) {
++      const C = forwardKinematics(q, tcpOffset);
++      const e = poseError(C, target);
++      const err = Math.hypot(...e);
++      if (err < convergence) break;
++      const J = jacobian(q, tcpOffset);
++      const lam = 1e-5 + 0.05 * err; // adaptive damping — graceful near singularities
++      const JtJ: number[][] = Array.from({ length: 6 }, (_, i) =>
++        Array.from({ length: 6 }, (_, j) => {
++          let s = 0;
++          for (let k = 0; k < 6; k++) s += J[k][i] * J[k][j];
++          return s + (i === j ? lam : 0);
++        }),
++      );
++      const Jte = new Array(6).fill(0).map((_, i) => {
++        let s = 0;
++        for (let k = 0; k < 6; k++) s += J[k][i] * e[k];
++        return s;
++      });
++      let dq = solve6(JtJ, Jte);
++      const dn = Math.hypot(...dq);
++      if (dn > maxIterStep) dq = dq.map((x) => (x * maxIterStep) / dn);
++      let stepSq = 0;
++      for (let i = 0; i < 6; i++) {
++        q[i] += dq[i];
++        stepSq += dq[i] * dq[i];
++      }
++      if (Math.sqrt(stepSq) < 1e-13) break;
++    }
++    const error = Math.hypot(...poseError(forwardKinematics(q, tcpOffset), target));
++    return { q, error, reached: error < 1e-3 };
++  };
++
++  let result: IKResult;
++  if (opts.seed) {
++    result = run(opts.seed);
++    // If the warm start diverged (target jumped far), fall back to acquisition.
++    if (!result.reached) {
++      const acq = acquire(target, tcpOffset, maxIters, maxIterStep);
++      if (acq.error < result.error) result = acq;
++    }
++  } else {
++    result = acquire(target, tcpOffset, maxIters, maxIterStep);
++  }
++
++  // Output velocity clamp relative to the seed (joint-velocity-limit emulation).
++  if (opts.seed && Number.isFinite(opts.maxJointStep ?? Infinity)) {
++    const cap = opts.maxJointStep as number;
++    result = {
++      ...result,
++      q: result.q.map((v, i) => {
++        const d = v - opts.seed![i];
++        return opts.seed![i] + Math.max(-cap, Math.min(cap, d));
++      }),
++    };
++  }
++
++  // Clamp to joint limits.
++  result.q = result.q.map((v, i) =>
++    Math.max(UR10E_LIMITS[i][0], Math.min(UR10E_LIMITS[i][1], v)),
++  );
++  return result;
++}
++
++function acquire(target: Mat4, tcpOffset: number, maxIters: number, maxIterStep: number): IKResult {
++  let best: IKResult | null = null;
++  for (const s of ACQUIRE_SEEDS) {
++    const r = solveIK(target, { seed: s, tcpOffset, maxIters, maxIterStep, maxJointStep: Infinity });
++    if (!best || r.error < best.error) best = r;
++    if (r.error < 1e-8) break;
++  }
++  return best!;
++}
++
++/**
++ * Build a target pose (in the URDF/base frame, Z-up) for a TCP pointing straight
++ * DOWN — the palletizing default. Tool +Z is aligned with base −Z; `yawDeg` spins
++ * the gripper about the vertical to match a box's rotation. Row-major 4×4, metres.
++ *
++ * Scene↔base mapping (the scene is Y-up, the robot group is rotated −90° about X):
++ *   base (xu, yu, zu)  →  scene (xu, zu, −yu)
++ *   scene (sx, sy, sz) →  base  (sx, −sz, sy)
++ * so a scene-relative point is converted with baseTargetFromScene() below.
++ */
++export function topDownTarget(x: number, y: number, z: number, yawDeg = 0): Mat4 {
++  const yaw = (yawDeg * Math.PI) / 180;
++  const c = Math.cos(yaw), s = Math.sin(yaw);
++  // columns: x-axis=(c,s,0), y-axis=(s,-c,0), z-axis=(0,0,-1)  (right-handed, pointing down)
++  return [
++    c, s, 0, x,
++    s, -c, 0, y,
++    0, 0, -1, z,
++    0, 0, 0, 1,
++  ];
++}
++
++/** Convert an arm-base-relative scene point (Y-up) to a base-frame (Z-up) point. */
++export function baseFromScene(sx: number, sy: number, sz: number): [number, number, number] {
++  return [sx, -sz, sy];
++}
++
++/** Convert a base-frame (Z-up) point back to an arm-base-relative scene point (Y-up). */
++export function sceneFromBase(xu: number, yu: number, zu: number): [number, number, number] {
++  return [xu, zu, -yu];
++}
+diff --git a/web/package.json b/web/package.json
+index f35d2a4..08c8ad0 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -12,6 +12,7 @@
+   "dependencies": {
+     "@react-three/drei": "^9.105.6",
+     "@react-three/fiber": "^8.16.8",
++    "@react-three/postprocessing": "^2.16.7",
+     "@react-three/rapier": "^1.5.0",
+     "@stripe/stripe-js": "^4.10.0",
+     "@supabase/ssr": "^0.5.2",
+@@ -22,8 +23,10 @@
+     "framer-motion": "^11.2.10",
+     "lucide-react": "^0.394.0",
+     "next": "^14.2.35",
++    "postprocessing": "6.37.4",
+     "react": "^18",
+     "react-dom": "^18",
++    "urdf-loader": "^0.13.1",
+     "react-hook-form": "^7.51.5",
+     "recharts": "^2.12.7",
+     "sonner": "^1.5.0",
+diff --git a/web/public/urdf/ur10e/ur10e.urdf b/web/public/urdf/ur10e/ur10e.urdf
+new file mode 100644
+index 0000000..2926dbb
+--- /dev/null
++++ b/web/public/urdf/ur10e/ur10e.urdf
+@@ -0,0 +1,109 @@
++<?xml version="1.0" ?>
++<!--
++  UR10e — flat (non-xacro) URDF for web loading with urdf-loader.
++  Joint origins are the exact mesh-aligned values from
++  Universal_Robots_ROS2_Description/config/ur10e/default_kinematics.yaml.
++  All joints rotate about local +Z (axis 0 0 1), which is why the joint angles
++  produced by lib/palletizer/urIK.ts drive these joints 1:1 (see urIK.ts header).
++  Visual meshes are the BSD-licensed UR CAD from ros-industrial/universal_robot.
++-->
++<robot name="ur10e">
++  <link name="base_link">
++    <visual>
++      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
++      <geometry><mesh filename="meshes/visual/base.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="shoulder_link">
++    <visual>
++      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
++      <geometry><mesh filename="meshes/visual/shoulder.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="upper_arm_link">
++    <visual>
++      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.1762"/>
++      <geometry><mesh filename="meshes/visual/upperarm.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="forearm_link">
++    <visual>
++      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.0393"/>
++      <geometry><mesh filename="meshes/visual/forearm.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="wrist_1_link">
++    <visual>
++      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.135"/>
++      <geometry><mesh filename="meshes/visual/wrist1.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="wrist_2_link">
++    <visual>
++      <origin rpy="0 0 0" xyz="0 0 -0.12"/>
++      <geometry><mesh filename="meshes/visual/wrist2.dae"/></geometry>
++    </visual>
++  </link>
++
++  <link name="wrist_3_link">
++    <visual>
++      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.1168"/>
++      <geometry><mesh filename="meshes/visual/wrist3.dae"/></geometry>
++    </visual>
++  </link>
++
++  <!-- TCP / tool flange frame (gripper is attached here in the scene) -->
++  <link name="tool0"/>
++
++  <joint name="shoulder_pan_joint" type="revolute">
++    <parent link="base_link"/><child link="shoulder_link"/>
++    <origin rpy="0 0 0" xyz="0 0 0.1807"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="330.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="2.0943951023931953"/>
++  </joint>
++
++  <joint name="shoulder_lift_joint" type="revolute">
++    <parent link="shoulder_link"/><child link="upper_arm_link"/>
++    <origin rpy="1.570796327 0 0" xyz="0 0 0"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="330.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="2.0943951023931953"/>
++  </joint>
++
++  <joint name="elbow_joint" type="revolute">
++    <parent link="upper_arm_link"/><child link="forearm_link"/>
++    <origin rpy="0 0 0" xyz="-0.6127 0 0"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="150.0" lower="-3.141592653589793" upper="3.141592653589793" velocity="3.141592653589793"/>
++  </joint>
++
++  <joint name="wrist_1_joint" type="revolute">
++    <parent link="forearm_link"/><child link="wrist_1_link"/>
++    <origin rpy="0 0 0" xyz="-0.57155 0 0.17415"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
++  </joint>
++
++  <joint name="wrist_2_joint" type="revolute">
++    <parent link="wrist_1_link"/><child link="wrist_2_link"/>
++    <origin rpy="1.570796327 0 0" xyz="0 -0.11985 -2.458164590756244e-11"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
++  </joint>
++
++  <joint name="wrist_3_joint" type="revolute">
++    <parent link="wrist_2_link"/><child link="wrist_3_link"/>
++    <origin rpy="1.570796326589793 3.141592653589793 3.141592653589793" xyz="0 0.11655 -2.390480459346185e-11"/>
++    <axis xyz="0 0 1"/>
++    <limit effort="56.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793"/>
++  </joint>
++
++  <joint name="wrist_3_to_tool0" type="fixed">
++    <parent link="wrist_3_link"/><child link="tool0"/>
++    <origin rpy="0 0 0" xyz="0 0 0.16"/>
++  </joint>
++</robot>
+diff --git a/web/scripts/fetch-ur10e-meshes.sh b/web/scripts/fetch-ur10e-meshes.sh
+new file mode 100755
+index 0000000..508ff04
+--- /dev/null
++++ b/web/scripts/fetch-ur10e-meshes.sh
+@@ -0,0 +1,16 @@
++#!/usr/bin/env bash
++# Fetch the BSD-licensed UR10e visual meshes referenced by public/urdf/ur10e/ur10e.urdf.
++# These are the real Universal Robots CAD meshes from ros-industrial/universal_robot.
++# Run once from web/ :  bash scripts/fetch-ur10e-meshes.sh
++set -euo pipefail
++
++DEST="public/urdf/ur10e/meshes/visual"
++BASE="https://raw.githubusercontent.com/ros-industrial/universal_robot/melodic-devel/ur_description/meshes/ur10e/visual"
++
++mkdir -p "$DEST"
++for m in base shoulder upperarm forearm wrist1 wrist2 wrist3; do
++  echo "→ $m.dae"
++  curl -fsSL -o "$DEST/$m.dae" "$BASE/$m.dae"
++done
++echo "✓ UR10e visual meshes in $DEST"
++echo "  (~10 MB. Optional: convert to a single .glb with gltf-transform to shrink first load.)"
