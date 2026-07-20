@@ -55,10 +55,14 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // --- locked radius scale (3 roles, replaces 6 ad-hoc values) ---
+        pill: "9999px",      // buttons, chips, eyebrows
+        card: "1rem",        // cards, panels, modals
+        field: "0.625rem",   // inputs, small controls
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        sans: ["var(--font-sans)", "Inter", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
       },
     },
   },

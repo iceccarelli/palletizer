@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 import { Toaster } from "sonner";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -20,8 +24,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark scroll-smooth scroll-pt-24">
-      <body className="bg-[#0f172a] text-white antialiased overflow-x-hidden">
+    <html lang="en" className={`dark scroll-smooth scroll-pt-24 ${sans.variable} ${mono.variable}`}>
+      <body className="bg-[#0f172a] text-white antialiased overflow-x-hidden font-sans">
         <Navbar />
         {children}
         <Footer />
