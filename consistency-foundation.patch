@@ -1,0 +1,134 @@
+diff --git a/web/app/globals.css b/web/app/globals.css
+index bf6d5f2..318f5ce 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -31,7 +31,7 @@
+ }
+ 
+ body {
+-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
++  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+ }
+ 
+ .glass {
+diff --git a/web/app/layout.tsx b/web/app/layout.tsx
+index af94090..1618d04 100644
+--- a/web/app/layout.tsx
++++ b/web/app/layout.tsx
+@@ -1,5 +1,9 @@
+ import type { Metadata, Viewport } from "next";
++import { Inter, JetBrains_Mono } from "next/font/google";
+ import "./globals.css";
++
++const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
++const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
+ import { Toaster } from "sonner";
+ import Navbar from "@/components/Navbar";
+ import Footer from "@/components/Footer";
+@@ -20,8 +24,8 @@ export const viewport: Viewport = {
+ 
+ export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+   return (
+-    <html lang="en" className="dark scroll-smooth scroll-pt-24">
+-      <body className="bg-[#0f172a] text-white antialiased overflow-x-hidden">
++    <html lang="en" className={`dark scroll-smooth scroll-pt-24 ${sans.variable} ${mono.variable}`}>
++      <body className="bg-[#0f172a] text-white antialiased overflow-x-hidden font-sans">
+         <Navbar />
+         {children}
+         <Footer />
+diff --git a/web/components/ui/Button.tsx b/web/components/ui/Button.tsx
+new file mode 100644
+index 0000000..7f00704
+--- /dev/null
++++ b/web/components/ui/Button.tsx
+@@ -0,0 +1,56 @@
++// THE button. One radius (pill), fixed heights, fixed padding, one transition.
++// Replaces the hand-rolled buttons across the app. For links, use
++// buttonVariants() on a <Link> so anchors and buttons look identical.
++//
++//   import { Button, buttonVariants } from "@/components/ui/Button";
++//   <Button size="lg">Try the live optimizer</Button>
++//   <Link href="/demo" className={buttonVariants({ variant: "outline", size: "lg" })}>Docs</Link>
++
++import * as React from "react";
++import { cva, type VariantProps } from "class-variance-authority";
++import { cn } from "@/lib/utils";
++
++export const buttonVariants = cva(
++  [
++    "inline-flex items-center justify-center gap-2 whitespace-nowrap select-none",
++    "font-semibold rounded-pill leading-none",
++    "transition-[transform,background-color,border-color,opacity] duration-150 ease-out",
++    "active:translate-y-px",
++    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
++    "disabled:opacity-50 disabled:pointer-events-none",
++  ].join(" "),
++  {
++    variants: {
++      variant: {
++        primary: "bg-primary text-primary-foreground hover:opacity-90",
++        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
++        outline:
++          "border border-border text-foreground hover:bg-foreground/5 hover:border-foreground/25",
++        ghost: "text-foreground/70 hover:text-foreground hover:bg-foreground/5",
++      },
++      size: {
++        // heights are deliberate: md = 44px (min touch target), lg = 52px
++        sm: "h-9 px-4 text-sm",
++        md: "h-11 px-5 text-sm",
++        lg: "h-[52px] px-7 text-base",
++      },
++      block: { true: "w-full", false: "" },
++    },
++    defaultVariants: { variant: "primary", size: "md", block: false },
++  }
++);
++
++export interface ButtonProps
++  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
++    VariantProps<typeof buttonVariants> {}
++
++export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
++  ({ className, variant, size, block, ...props }, ref) => (
++    <button
++      ref={ref}
++      className={cn(buttonVariants({ variant, size, block }), className)}
++      {...props}
++    />
++  )
++);
++Button.displayName = "Button";
+diff --git a/web/lib/utils.ts b/web/lib/utils.ts
+new file mode 100644
+index 0000000..a50cd30
+--- /dev/null
++++ b/web/lib/utils.ts
+@@ -0,0 +1,7 @@
++import { clsx, type ClassValue } from "clsx";
++import { twMerge } from "tailwind-merge";
++
++/** Merge conditional + Tailwind classes safely (later class wins on conflicts). */
++export function cn(...inputs: ClassValue[]) {
++  return twMerge(clsx(inputs));
++}
+diff --git a/web/tailwind.config.ts b/web/tailwind.config.ts
+index 1fe37b9..5561276 100644
+--- a/web/tailwind.config.ts
++++ b/web/tailwind.config.ts
+@@ -55,10 +55,14 @@ const config: Config = {
+         lg: "var(--radius)",
+         md: "calc(var(--radius) - 2px)",
+         sm: "calc(var(--radius) - 4px)",
++        // --- locked radius scale (3 roles, replaces 6 ad-hoc values) ---
++        pill: "9999px",      // buttons, chips, eyebrows
++        card: "1rem",        // cards, panels, modals
++        field: "0.625rem",   // inputs, small controls
+       },
+       fontFamily: {
+-        sans: ["Inter", "system-ui", "sans-serif"],
+-        mono: ["JetBrains Mono", "monospace"],
++        sans: ["var(--font-sans)", "Inter", "system-ui", "sans-serif"],
++        mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
+       },
+     },
+   },
