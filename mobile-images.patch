@@ -1,0 +1,327 @@
+diff --git a/web/app/demo/page.tsx b/web/app/demo/page.tsx
+index 3e6bb47..e368933 100644
+--- a/web/app/demo/page.tsx
++++ b/web/app/demo/page.tsx
+@@ -126,7 +126,7 @@ export default function LiveOptimizerDemo() {
+ 
+   return (
+     <div className="min-h-screen bg-[#0f172a] pt-20 pb-16">
+-      <div className="max-w-7xl mx-auto px-6">
++      <div className="container-page">
+         {/* Header */}
+         <div className="flex items-end justify-between mb-8">
+           <div>
+diff --git a/web/app/demos/page.tsx b/web/app/demos/page.tsx
+index 7dee673..b105ac8 100644
+--- a/web/app/demos/page.tsx
++++ b/web/app/demos/page.tsx
+@@ -41,7 +41,7 @@ export default function DemosPage() {
+ 
+   return (
+     <div className="min-h-screen bg-[#0f172a] pt-24 pb-16">
+-      <div className="max-w-7xl mx-auto px-4 md:px-6">
++      <div className="container-page">
+         <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
+           <div>
+             <div className="flex items-center gap-3 mb-2">
+diff --git a/web/app/globals.css b/web/app/globals.css
+index 318f5ce..a075afa 100644
+--- a/web/app/globals.css
++++ b/web/app/globals.css
+@@ -2,6 +2,27 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
++/* One canonical page container — same gutters for navbar, footer, every
++   section, at every breakpoint. Prevents mobile edge-misalignment. */
++@layer components {
++  .container-page {
++    @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
++  }
++}
++
++/* Ken Burns slideshow (KenBurnsHero) — crossfade + slow zoom/pan. */
++.kb-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease-in-out; }
++.kb-slide.kb-active { opacity: 1; }
++.kb-slide.kb-active img { animation: kenburns 5s ease-out both; }
++@keyframes kenburns {
++  from { transform: scale(1.06) translate(0, 0); }
++  to   { transform: scale(1.2) translate(-1.5%, -1.5%); }
++}
++@media (prefers-reduced-motion: reduce) {
++  .kb-slide { transition: none; }
++  .kb-slide.kb-active img { animation: none; }
++}
++
+ :root {
+   --background: 222.2 84% 4.9%;
+   --foreground: 210 40% 98%;
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index e4ec8e3..c25a478 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -3,6 +3,8 @@
+ import Link from "next/link";
+ import { SectionHeader, SectionShell, Eyebrow, SectionTitle, Card } from "@/components/Section";
+ import { motion } from "framer-motion";
++import KenBurnsHero from "@/components/KenBurnsHero";
++import SwipeGallery from "@/components/SwipeGallery";
+ import { 
+   ArrowRight, Check, Play, Zap, Shield, TrendingUp, 
+   Users, Award, Clock 
+@@ -12,8 +14,9 @@ export default function PalletizerLanding() {
+   return (
+     <div className="min-h-screen bg-[#0f172a] text-white overflow-hidden">
+       {/* HERO - Ruthless, high-conversion */}
+-      <section className="hero-bg min-h-[100dvh] flex items-center relative pt-20">
+-        <div className="max-w-7xl mx-auto px-6 text-center">
++      <section className="min-h-[100dvh] flex items-center relative pt-20 overflow-hidden">
++        <KenBurnsHero />
++        <div className="container-page text-center relative z-10">
+           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 text-xs tracking-[3px] mb-6 border border-white/20">
+             v0.2 ENHANCED • OPEN CORE + ENTERPRISE
+           </div>
+@@ -55,7 +58,7 @@ export default function PalletizerLanding() {
+ 
+       {/* TRUST BAR - Social Proof */}
+       <div className="border-b border-white/10 py-5 bg-black/30">
+-        <div className="max-w-7xl mx-auto px-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-3 text-xs uppercase tracking-[3px] text-white/50">
++        <div className="container-page flex flex-wrap items-center justify-center gap-x-12 gap-y-3 text-xs uppercase tracking-[3px] text-white/50">
+           <div>LEADING F&B MANUFACTURERS</div>
+           <div>MAJOR 3PL & E-COMMERCE</div>
+           <div>PHARMA & REGULATED INDUSTRIES</div>
+@@ -63,9 +66,11 @@ export default function PalletizerLanding() {
+         </div>
+       </div>
+ 
++      <SwipeGallery />
++
+       {/* LIVE CELL OS — play the shipped edge stack */}
+       <section className="section-padding border-b border-white/10">
+-        <div className="max-w-7xl mx-auto px-6">
++        <div className="container-page">
+           <div className="grid lg:grid-cols-2 gap-10 items-center">
+             <div>
+               <div className="text-xs tracking-[3px] text-primary mb-4">NEW • LIVE CELL OS</div>
+@@ -135,7 +140,7 @@ export default function PalletizerLanding() {
+ 
+       {/* THE SOLUTION - Our Hard Defensible Capability */}
+       <section id="product" className="section-padding bg-[#020617] border-y border-white/10">
+-        <div className="max-w-7xl mx-auto px-6">
++        <div className="container-page">
+           <div className="flex flex-col lg:flex-row gap-12 items-center">
+             <div className="flex-1">
+               <Eyebrow>The one hard capability</Eyebrow>
+@@ -204,7 +209,7 @@ export default function PalletizerLanding() {
+ 
+       {/* FINAL CTA - Ruthless */}
+       <section className="section-padding bg-[#020617] border-t border-white/10">
+-        <div className="max-w-7xl mx-auto px-6 text-center">
++        <div className="container-page text-center">
+           <Eyebrow>Get started</Eyebrow>
+           <SectionTitle className="mb-6">Ready to turn palletizing into a profit center?</SectionTitle>
+           <p className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto">
+diff --git a/web/components/Footer.tsx b/web/components/Footer.tsx
+index d788800..7e17a62 100644
+--- a/web/components/Footer.tsx
++++ b/web/components/Footer.tsx
+@@ -65,7 +65,7 @@ export default function Footer() {
+         <ArrowUp className="w-3.5 h-3.5" /> BACK TO TOP
+       </button>
+ 
+-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12">
++      <div className="container-page py-12">
+         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+           {COLUMNS.map((col) => (
+             <div key={col.title}>
+diff --git a/web/components/KenBurnsHero.tsx b/web/components/KenBurnsHero.tsx
+new file mode 100644
+index 0000000..75df8c7
+--- /dev/null
++++ b/web/components/KenBurnsHero.tsx
+@@ -0,0 +1,43 @@
++"use client";
++
++import Image from "next/image";
++import { useEffect, useState } from "react";
++
++// 12 professional landing images — cycle behind the hero, one every 4s.
++const SLIDES = [
++  "01-hero-palletizing-cell", "02-precision-gripper-ai", "03-ai-mixed-sku-pallet",
++  "04-one-codebase-any-robot", "05-global-fleet-command", "06-safety-first-collaboration",
++  "07-high-throughput-120-cycles", "08-robotinterface-under-100-lines", "09-food-beverage-sanitary",
++  "10-ecommerce-mixed-sku", "11-digital-twin-sim-to-real", "12-scale-to-global-fleets",
++].map((n) => `/landing/${n}.jpg`);
++
++const INTERVAL = 4000;
++
++export default function KenBurnsHero() {
++  const [i, setI] = useState(0);
++
++  useEffect(() => {
++    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
++    const t = setInterval(() => setI((p) => (p + 1) % SLIDES.length), INTERVAL);
++    return () => clearInterval(t);
++  }, []);
++
++  return (
++    <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
++      {SLIDES.map((src, idx) => (
++        <div key={src} className={`kb-slide ${idx === i ? "kb-active" : ""}`}>
++          <Image
++            src={src}
++            alt=""
++            fill
++            priority={idx === 0}
++            sizes="100vw"
++            className="object-cover"
++          />
++        </div>
++      ))}
++      {/* legibility wash so hero copy stays readable over any frame */}
++      <div className="absolute inset-0 bg-gradient-to-b from-[#0f172a]/85 via-[#0f172a]/75 to-[#0f172a]/92" />
++    </div>
++  );
++}
+diff --git a/web/components/Navbar.tsx b/web/components/Navbar.tsx
+index ee42072..0d48c2d 100644
+--- a/web/components/Navbar.tsx
++++ b/web/components/Navbar.tsx
+@@ -189,7 +189,7 @@ export default function Navbar() {
+     >
+       {/* Tier 1 — utility bar (AWS pattern) */}
+       <div className="hidden md:block bg-[#080d1a] border-b border-white/5">
+-        <div className="max-w-7xl mx-auto px-6 h-8 flex items-center justify-end gap-5 text-[11px] text-white/50">
++        <div className="container-page h-8 flex items-center justify-end gap-5 text-[11px] text-white/50">
+           <span className="mr-auto text-white/35">Open-source palletizing engine — same math in browser and robot cell</span>
+           <Link href={GH} target="_blank" className="hover:text-white/90 transition flex items-center gap-1">
+             <Github className="w-3 h-3" /> GitHub
+@@ -205,7 +205,7 @@ export default function Navbar() {
+ 
+       {/* Tier 2 — main nav */}
+       <div className="glass border-b border-white/10">
+-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
++        <div className="container-page h-16 flex items-center justify-between">
+           <Link href="/" className="flex items-center gap-3 shrink-0" onClick={closeAll}>
+             <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
+               <span className="font-mono text-xl font-bold tracking-tighter text-primary-foreground">P</span>
+@@ -267,7 +267,7 @@ export default function Navbar() {
+           </div>
+ 
+           {/* Mobile toggle */}
+-          <button onClick={() => setIsOpen(!isOpen)} className="lg:hidden p-2" aria-label="Menu">
++          <button onClick={() => setIsOpen(!isOpen)} className="lg:hidden -mr-2 inline-flex h-11 w-11 items-center justify-center" aria-label="Menu">
+             {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+           </button>
+         </div>
+diff --git a/web/components/Section.tsx b/web/components/Section.tsx
+index b6eb473..157d82a 100644
+--- a/web/components/Section.tsx
++++ b/web/components/Section.tsx
+@@ -59,7 +59,7 @@ export function SectionShell({
+ }) {
+   return (
+     <section id={id} className={`section-padding ${className}`}>
+-      <div className="max-w-7xl mx-auto px-6">{children}</div>
++      <div className="container-page">{children}</div>
+     </section>
+   );
+ }
+diff --git a/web/components/SwipeGallery.tsx b/web/components/SwipeGallery.tsx
+new file mode 100644
+index 0000000..b38b2b5
+--- /dev/null
++++ b/web/components/SwipeGallery.tsx
+@@ -0,0 +1,92 @@
++"use client";
++
++import Image from "next/image";
++import { useState } from "react";
++import { motion, AnimatePresence, type PanInfo } from "framer-motion";
++import { ChevronLeft, ChevronRight } from "lucide-react";
++
++const CARDS = [
++  { src: "/landing/01-hero-palletizing-cell.jpg",        title: "Production palletizing cell",   blurb: "Deterministic control, full telemetry, production-grade safety." },
++  { src: "/landing/02-precision-gripper-ai.jpg",         title: "AI precision gripping",         blurb: "Vacuum and pressure feedback, every pick vision-gated." },
++  { src: "/landing/03-ai-mixed-sku-pallet.jpg",          title: "Mixed-SKU optimization",        blurb: "Stable, interlocked, crush-safe stacks at 90%+ fill." },
++  { src: "/landing/04-one-codebase-any-robot.jpg",       title: "One codebase, any robot",       blurb: "UR, FANUC, KUKA, ABB — the same engine drives them all." },
++  { src: "/landing/05-global-fleet-command.jpg",         title: "Fleet command center",          blurb: "Every cell in your operation on one pane of glass." },
++  { src: "/landing/06-safety-first-collaboration.jpg",   title: "Safety-first by design",        blurb: "Watchdog latches E-stop in 2.5s — it never moves blind." },
++  { src: "/landing/07-high-throughput-120-cycles.jpg",   title: "High throughput",               blurb: "Up to 120 cycles/min on capable hardware." },
++  { src: "/landing/08-robotinterface-under-100-lines.jpg", title: "Add an arm in <100 lines",    blurb: "Subclass RobotInterface; planner and safety stay unchanged." },
++  { src: "/landing/09-food-beverage-sanitary.jpg",       title: "Food & beverage ready",         blurb: "Sanitary layouts and audit trails for regulated lines." },
++  { src: "/landing/10-ecommerce-mixed-sku.jpg",          title: "E-commerce mixed-SKU",          blurb: "High-mix chaos planned in milliseconds." },
++  { src: "/landing/11-digital-twin-sim-to-real.jpg",     title: "Digital twin, sim-to-real",     blurb: "Validate offline, then deploy to hardware with confidence." },
++  { src: "/landing/12-scale-to-global-fleets.jpg",       title: "Scale to global fleets",        blurb: "From a single cell to a worldwide operation." },
++];
++
++export default function SwipeGallery() {
++  const [[i, dir], set] = useState<[number, number]>([0, 0]);
++  const go = (d: number) => set([(i + d + CARDS.length) % CARDS.length, d]);
++
++  const onDragEnd = (_e: unknown, info: PanInfo) => {
++    if (info.offset.x < -80 || info.velocity.x < -450) go(1);
++    else if (info.offset.x > 80 || info.velocity.x > 450) go(-1);
++  };
++
++  const c = CARDS[i];
++
++  return (
++    <section className="section-padding border-y border-white/10">
++      <div className="container-page">
++        <div className="text-center mb-10">
++          <div className="text-xs uppercase tracking-[3px] text-primary mb-3">Explore the platform</div>
++          <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tighter">
++            Swipe through what it does
++          </h2>
++        </div>
++
++        <div className="relative max-w-xl mx-auto">
++          <div className="relative h-[440px] sm:h-[500px] select-none">
++            <AnimatePresence initial={false} custom={dir} mode="popLayout">
++              <motion.article
++                key={i}
++                custom={dir}
++                drag="x"
++                dragConstraints={{ left: 0, right: 0 }}
++                dragElastic={0.55}
++                onDragEnd={onDragEnd}
++                initial={{ x: dir > 0 ? 320 : -320, opacity: 0, rotate: dir > 0 ? 5 : -5 }}
++                animate={{ x: 0, opacity: 1, rotate: 0 }}
++                exit={{ x: dir > 0 ? -320 : 320, opacity: 0, rotate: dir > 0 ? -5 : 5 }}
++                transition={{ type: "spring", stiffness: 320, damping: 32 }}
++                className="absolute inset-0 rounded-card overflow-hidden border border-white/10 bg-[#0b1222] shadow-2xl shadow-black/40 cursor-grab active:cursor-grabbing"
++              >
++                <div className="relative h-3/5">
++                  <Image src={c.src} alt={c.title} fill sizes="(max-width:640px) 100vw, 576px" className="object-cover pointer-events-none" />
++                </div>
++                <div className="p-6">
++                  <div className="font-mono text-xs text-primary tracking-[2px] mb-2">
++                    {String(i + 1).padStart(2, "0")} / {CARDS.length}
++                  </div>
++                  <h3 className="text-xl font-semibold tracking-tight mb-2">{c.title}</h3>
++                  <p className="text-white/60 text-sm leading-relaxed">{c.blurb}</p>
++                </div>
++              </motion.article>
++            </AnimatePresence>
++          </div>
++
++          <div className="flex items-center justify-center gap-4 mt-6">
++            <button onClick={() => go(-1)} aria-label="Previous card" className="h-11 w-11 inline-flex items-center justify-center rounded-full border border-white/15 hover:bg-white/5 transition">
++              <ChevronLeft className="w-5 h-5" />
++            </button>
++            <div className="flex gap-1.5" aria-hidden="true">
++              {CARDS.map((_, idx) => (
++                <span key={idx} className={`h-1.5 rounded-full transition-all ${idx === i ? "w-6 bg-primary" : "w-1.5 bg-white/25"}`} />
++              ))}
++            </div>
++            <button onClick={() => go(1)} aria-label="Next card" className="h-11 w-11 inline-flex items-center justify-center rounded-full border border-white/15 hover:bg-white/5 transition">
++              <ChevronRight className="w-5 h-5" />
++            </button>
++          </div>
++          <p className="text-center text-white/40 text-xs mt-3 sm:hidden">Swipe cards left or right</p>
++        </div>
++      </div>
++    </section>
++  );
++}
