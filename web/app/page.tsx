@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SectionHeader, SectionShell, Eyebrow, SectionTitle, Card } from "@/components/Section";
+import RobotShowcase from "@/components/RobotShowcase";
 import { motion } from "framer-motion";
 import { 
   ArrowRight, Check, Play, Zap, Shield, TrendingUp, 
@@ -174,6 +175,9 @@ export default function PalletizerLanding() {
           </div>
         </div>
       </section>
+
+      {/* ROBOT & CELL SHOWCASE — photorealistic proof, right after the core capability */}
+      <RobotShowcase />
 
       {/* SOLUTIONS / INDUSTRIES with Unsplash style backgrounds */}
       <SectionShell id="solutions">

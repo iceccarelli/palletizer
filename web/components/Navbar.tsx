@@ -101,6 +101,7 @@ const MENUS: MenuDef[] = [
 ];
 
 const PLAIN_LINKS = [
+  { href: "/#showcase", label: "Showcase" },
   { href: "/#solutions", label: "Solutions" },
   { href: "/pricing", label: "Pricing" },
 ];
